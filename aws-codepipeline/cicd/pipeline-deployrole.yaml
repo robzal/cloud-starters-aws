@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  IAM Role and Policy for Pipeline Deployments
+Parameters:
+  AppCode:
+    Description: Short Name for the Application being deployed, to be used in resource and stack names
+    Type: String
+    Default: demo-pipeline
+  Environment:
+    Description: Envornment Code for the Application being deployed, to be used in resource and stack names
+    Type: String
+    Default: myenv
+  BuildAccount:
+    Description: AccountID where the Pipeline resides which will assume this role
+    Type: Number 
+    Default: "238160719262"
+  PipelineBucketARN:
+      Type: String
+      Default: arn:aws:s3:::238160719262-pipelines
+      Description: ARN of S3 bucket for CodePipeline to use
+  PipelineBucketKMSKeyARN:
+      Type: String
+      Default: arn:aws:kms:ap-southeast-2:238160719262:key/784d1ffe-4317-452c-b6d3-7d2b7f4b612b
+      Description: ARN of KMS key used for S3 pipeline bucket encryption
+Resources:
+  DeploymentRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub ${AppCode}-${Environment}-deployment-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${BuildAccount}:root
+            Action: 'sts:AssumeRole'
+          - Effect: Allow
+            Principal:
+              Service :
+                - cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+  DeploymentPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: !Sub ${AppCode}-${Environment}-deployment-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          # Add the IAM access needed to deploy the workload(s) here
+          - Effect: Allow
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:Encrypt'
+              - 'kms:DescribeKey'
+              - 'ssm:GetParametersByPath'
+              - 'ssm:GetParameters'
+              - 'ssm:GetParameter'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+              - 's3:DeleteObjectTagging'
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:AbortMultipartUpload'
+              - 's3:GetObjectTagging'
+              - 's3:PutObjectTagging'
+              - 's3:DeleteObject'
+              - 's3:ListMultipartUploadParts'
+            Resource:
+              - !Sub 'arn:aws:ssm:${AWS::Region}:*:parameter/${AppCode}/${Environment}/*'
+              - !Sub 'arn:aws:s3:::${PipelineBucket}/*'
+              - !Sub 'arn:aws:s3:::${PipelineBucket}'
+              - !Sub '${PipelineBucketKMSKeyARN}'
+          # Add the IAM access needed to deploy the workload(s) here
+          - Effect: Allow
+            Action:
+              - 'logs:*'
+            Resource: '*'
+      Roles:
+        - !Ref DeploymentRole
+
+Outputs:
+  CodeDeploymentRole:
+    Value: !GetAtt 
+      - DeploymentRole
+      - Arn
+    Description: ARN of the IAM role which will be used to create stacks.
+  DeploymentPolicy:
+    Value: !Ref DeploymentPolicy
+    Description: Name of the IAM policy attached to StackCreateRole.

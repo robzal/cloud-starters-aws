@@ -1,0 +1,50 @@
+{
+    "rules": [
+        {
+            "branch_name" : "develop",
+            "targets": [ 
+                {
+                    "app_code": "demo-pipeline",
+                    "pipeline_name": "demo-pipeline-dev-pipeline",
+                    "repository_name": "codepipeline-flexi",
+                    "branch_name": "develop",
+                    "stack_name": "dev",
+                    "environment": "dev",
+                    "env_file": "config/.env.dev"
+                },
+                {
+                    "app_code": "demo-pipeline",
+                    "pipeline_name": "demo-pipeline-test-pipeline",
+                    "repository_name": "codepipeline-flexi",
+                    "branch_name": "develop",
+                    "stack_name": "test",
+                    "environment": "test",
+                    "env_file": "config/.env.dev"
+                }
+            ]
+        },
+        {
+            "branch_name" : "master",
+            "targets": [ 
+                {
+                    "app_code": "demo-pipeline",
+                    "pipeline_name": "demo-pipeline-stage-pipeline",
+                    "repository_name": "codepipeline-flexi",
+                    "branch_name": "master",
+                    "stack_name": "stage",
+                    "environment": "stage",
+                    "env_file": "config/.env.stage"
+                },
+                {
+                    "app_code": "demo-pipeline",
+                    "pipeline_name": "demo-pipeline-prod-pipeline",
+                    "repository_name": "codepipeline-flexi",
+                    "branch_name": "master",
+                    "stack_name": "prod",
+                    "environment": "prod",
+                    "env_file": "config/.env.prod"
+                }
+            ]
+        }
+    ]
+}

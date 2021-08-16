@@ -1,0 +1,306 @@
+Description: >
+    Deploy an ECS service on either AWS Fargate or EC2, hosted in a private subnet, but optionally accessible via a public load balancer
+
+Parameters: 
+    AppCode:
+        Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+        Type: String
+        Default: demo-ecs
+    Environment:
+        Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+        Type: String
+        Default: tools
+    ECSClusterName:
+        Description: Name for the ECS Cluster being deployed to
+        Type: String
+        Default: demo-ecs-tools-ECS-Cluster
+    ECSTaskImage:
+        Description: The container image to use
+        Type: String
+        # Default: 238160719262.dkr.ecr.ap-southeast-2.amazonaws.com/girl-grads-server:latest
+        Default: nginxdemos/hello
+    ECSClusterVPCID:
+        Description: VPCID to deploy this infrastructure into
+        Type: String
+        Default: vpc-0a0b4366ab0c398e2
+    ECSClusterSecGroups:
+        Description: Instance type for the ECS Cluster
+        Type: CommaDelimitedList
+        Default: sg-09d40416a978d5c72
+    ECSClusterSubnet1:
+        Description: Subnet ID 1 for Cluster
+        Type: String
+        Default: subnet-031079d089d751bce
+    ECSClusterSubnet2:
+        Description: Subnet ID 2 for Cluster
+        Type: String
+        Default: subnet-0cad3d3e49c3c4bac
+    ECSLoadBalSecGroups:
+        Description: Instance type for the ECS Cluster
+        Type: CommaDelimitedList
+        Default: sg-09d40416a978d5c72
+    ECSLoadBalCertificate:
+        Description: (Optional) LoadBal SSL Certiication ARN
+        Type: String
+        # Default: arn:aws:acm:ap-southeast-2:238160719262:certificate/d5f8f1d5-30fe-4f6a-83b1-6330ae3e0a7f
+        Default: ""
+    ECSLoadBalSchema:
+        Description: LoadBal access - internal or internet facing
+        Type: String
+        Default: internet-facing
+        AllowedValues: [internal, internet-facing]
+    ECSLoadBalSubnet1:
+        Description: Subnet ID 1 for Cluster
+        Type: String
+        Default: subnet-0dc52a6d494f7bb22
+    ECSLoadBalSubnet2:
+        Description: Subnet ID 2 for Cluster
+        Type: String
+        Default: subnet-0e9b388e5542d5e76
+    ECSTaskCountEC2:
+        Description: The number of service tasks to run on EC2 resources
+        Type: Number
+        Default: 0
+    ECSTaskCountFargate:
+        Description: The number of service tasks to run on fargate resources
+        Type: Number
+        Default: 0
+    ECSTaskPortEC2:
+        Description: The load bal port number of the ECS EC2 service (must be different to fargate service)
+        Type: Number
+        Default: 8080
+    ECSTaskPortFargate:
+        Description: The load bal port number of the ECS fargate service (must be different to ec2 service)
+        Type: Number
+        Default: 80
+    ELBDNSAliasZone: 
+        Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
+        Type: String
+        Default: worxdesign.com.
+    ELBDNSAliasHost:
+        Description: (Optional) Alias Name for the ELB being created (minus the zone / domain)
+        Type: String
+        Default: ""
+Conditions:
+    DoDNS: !Not [!Equals [!Ref ELBDNSAliasHost, ""]]
+    DoHTTPS: !Not [!Equals [!Ref ECSLoadBalCertificate, ""]]
+Resources:
+    TaskExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                    - "ecs-tasks.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          ManagedPolicyArns:
+            - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+    TaskRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                    - "ecs-tasks.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          ManagedPolicyArns:
+            - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            # add the accesses that the container code needs
+            - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+            - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+    LoadBalancer:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-LoadBal
+            Scheme: !Ref ECSLoadBalSchema
+            Type: application
+            Subnets: 
+                - !Ref ECSLoadBalSubnet1
+                - !Ref ECSLoadBalSubnet2
+            SecurityGroups: !Ref ECSLoadBalSecGroups
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${AppCode}-${Environment}-LoadBal
+
+    TargetGroupEC2:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-EC2-TG
+            VpcId: !Ref ECSClusterVPCID
+            Port: 80
+            Protocol:  HTTP
+            HealthCheckPath: "/"
+    LoadBalancerListenerEC2:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn: !Ref LoadBalancer
+            Port: !Ref ECSTaskPortEC2
+            Protocol: !If [DoHTTPS, HTTPS, HTTP]
+            Certificates:  
+                - !If [DoHTTPS, !Ref ECSLoadBalCertificate, !Ref 'AWS::NoValue']
+            DefaultActions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroupEC2
+    ListenerRuleEC2:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerEC2
+            Priority: 2
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupEC2
+                  Type: forward            
+    TaskDefinitionEC2:
+        Type: AWS::ECS::TaskDefinition
+        DependsOn: ListenerRuleEC2
+        Properties:
+            Family: !Sub ${AppCode}-${Environment}-ec2
+            Cpu: 512
+            Memory: 1024
+            NetworkMode: bridge
+            ExecutionRoleArn: !Ref TaskExecutionRole
+            TaskRoleArn: !Ref TaskRole
+            ContainerDefinitions:
+                - Name: !Sub ${AppCode}-${Environment}-ec2
+                  Essential: true
+                  Image: !Ref ECSTaskImage
+                  MemoryReservation: 1024
+                  PortMappings:
+                    - ContainerPort: 80
+                      HostPort: 0
+                      Protocol: tcp                    
+                  LogConfiguration:
+                    LogDriver: awslogs
+                    Options:
+                        awslogs-create-group: true
+                        awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-ec2'
+                        awslogs-region: !Ref AWS::Region
+                        awslogs-stream-prefix: "log"  
+    ServiceEC2: 
+        Type: AWS::ECS::Service
+        DependsOn: TaskDefinitionEC2
+        Properties: 
+            Cluster: !Ref ECSClusterName
+            ServiceName: !Sub ${AppCode}-${Environment}-ec2
+            Role: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
+            DesiredCount: !Ref ECSTaskCountEC2
+            TaskDefinition: !Ref TaskDefinitionEC2
+            LoadBalancers: 
+                - ContainerName: !Sub ${AppCode}-${Environment}-ec2
+                  ContainerPort: 80
+                  TargetGroupArn: !Ref TargetGroupEC2
+
+    TargetGroupFargate:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Fargate-TG
+            VpcId: !Ref ECSClusterVPCID
+            Port: 80
+            Protocol: HTTP
+            TargetType: ip
+            HealthCheckPath: "/"
+    LoadBalancerListenerFargate:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn: !Ref LoadBalancer
+            Port: !Ref ECSTaskPortFargate
+            Protocol: !If [DoHTTPS, HTTPS, HTTP]
+            Certificates:  
+                - !If [DoHTTPS, !Ref ECSLoadBalCertificate, !Ref 'AWS::NoValue']
+            DefaultActions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroupFargate
+    ListenerRuleFargate:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerFargate
+            Priority: 2
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupFargate
+                  Type: forward            
+    TaskDefinitionFargate:
+        Type: AWS::ECS::TaskDefinition
+        DependsOn: ListenerRuleFargate
+        Properties: 
+            Family: !Sub ${AppCode}-${Environment}-fargate
+            ExecutionRoleArn: !Ref TaskExecutionRole
+            TaskRoleArn: !Ref TaskRole
+            Cpu: 512
+            Memory: 1024
+            NetworkMode: "awsvpc"
+            RequiresCompatibilities: 
+              - "FARGATE"
+            ContainerDefinitions: 
+              - Name: !Sub ${AppCode}-${Environment}-fargate
+                Cpu: 512
+                Memory: 1024
+                MemoryReservation: 1024
+                Image: !Ref ECSTaskImage
+                PortMappings:
+                - ContainerPort: 80
+                Environment: 
+                - Name: APP_CODE
+                  Value: !Ref 'AppCode'
+                - Name: ENVIRONMENT
+                  Value: !Ref 'Environment'
+                LogConfiguration: 
+                    LogDriver: awslogs
+                    Options:
+                        awslogs-create-group: true
+                        awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-fargate'
+                        awslogs-region: !Ref AWS::Region
+                        awslogs-stream-prefix: "log"
+    ServiceFargate: 
+        Type: AWS::ECS::Service
+        DependsOn: TaskDefinitionFargate
+        Properties: 
+            ServiceName: !Sub ${AppCode}-${Environment}-fargate
+            Cluster: !Ref ECSClusterName
+            LaunchType: FARGATE
+            DesiredCount: !Ref ECSTaskCountFargate
+            TaskDefinition: !Ref TaskDefinitionFargate
+            NetworkConfiguration:
+                AwsvpcConfiguration:
+                    AssignPublicIp: DISABLED
+                    Subnets: 
+                        - !Ref ECSClusterSubnet1
+                        - !Ref ECSClusterSubnet2
+                    SecurityGroups: !Ref ECSLoadBalSecGroups
+            LoadBalancers: 
+                - ContainerName: !Sub ${AppCode}-${Environment}-fargate
+                  ContainerPort: 80
+                  TargetGroupArn: !Ref TargetGroupFargate
+
+    Route53:
+            Type: AWS::Route53::RecordSetGroup
+            Condition: DoDNS
+            Properties:
+                HostedZoneName: !Ref ELBDNSAliasZone
+                Comment:  Alias for the API Service ELB.
+                RecordSets:
+                - Name: !Join ["", [!Ref ELBDNSAliasHost, ".", !Ref ELBDNSAliasZone]]
+                Type: A
+                AliasTarget:
+                    HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+                    DNSName: !GetAtt LoadBalancer.DNSName
+
+Outputs:
+    ELBDNS: 
+        Description: Raw DNS Alias for ELB created 
+        Value: !GetAtt LoadBalancer.DNSName

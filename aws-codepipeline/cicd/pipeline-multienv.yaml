@@ -1,0 +1,335 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Template for fancy commitid event based pipeline in AWS
+Parameters:
+    Environment:
+        Type: String
+        Default: tools
+        Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+    AppCode:
+        Type: String
+        Default: demo-pipeline
+        Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+    PipelineBucket:
+      Type: String
+      Default: 238160719262-pipelines
+      Description: Name of S3 bucket for CodePipeline to use
+    PipelineBucketKMSKeyARN:
+        Type: String
+        Default: arn:aws:kms:ap-southeast-2:238160719262:key/784d1ffe-4317-452c-b6d3-7d2b7f4b612b
+        Description: ARN of KMS key used for S3 pipeline bucket encryption
+    CloudformationBucket:
+        Type: String
+        Default: 238160719262-cloudformation
+        Description: Name of S3 bucket for Cloudformation Templates
+    BuildBucket:
+        Type: String
+        Default: 238160719262-builds
+        Description: Name of S3 bucket for build artefacts 
+    CodeCommitRepo:
+        Type: String
+        Default: pipeline-test
+        Description: Name of the CodeCommit Repo comtaining source to deploy with the pipeline
+    CodeCommitDevBranch:
+        Type: String
+        Default: develop
+        Description: Name of the CodeCommit Branch for Dev / Test Builds
+    CodeCommitProdBranch:
+        Type: String
+        Default: master
+        Description: Name of the CodeCommit Branch for Stage / Prod Builds
+    DevAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/Admins
+        Description: ARN of the deployment role to assume in the dev account when deploying cloudformation template
+    TestAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/Admins
+        Description: ARN of the deployment role to assume in the test account when deploying cloudformation template
+    StageAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/Admins
+        Description: ARN of the deployment role to assume in the stg account when deploying cloudformation template
+    ProdAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/Admins
+        Description: ARN of the deployment role to assume in the prod account when deploying cloudformation template
+    CodeBuildImage:
+        Type: String
+        Default: "aws/codebuild/standard:5.0"
+        Description: Name of the image to use for the CodeBuild container
+    CodeBuildCompute:
+      Type: String
+      Default: "BUILD_GENERAL1_MEDIUM"
+      Description: Container Size to use for the CodeBuild container
+Resources:
+    DeployProject:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Name: !Sub ${AppCode}-deploy-project
+            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: LINUX_CONTAINER
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: buildspec-deploy.yaml
+    PipelinePolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:*:*
+            - Effect: Allow
+              Action: 
+                - 's3:*'
+              Resource:
+                - !Sub 'arn:aws:s3:::${PipelineBucket}/*'
+                - !Sub 'arn:aws:s3:::${PipelineBucket}'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}/*'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}'
+                - !Sub 'arn:aws:s3:::${BuildBucket}/*'
+                - !Sub 'arn:aws:s3:::${BuildBucket}'
+            - Effect: Allow
+              Action:
+                - 'iam:PassRole'
+              Resource: 
+                - '*'
+            - Effect: Allow
+              Action:
+                - 'codepipeline:PutJobSuccessResult'
+                - 'codepipeline:PutJobFailureResult'
+              Resource:
+                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-dev-test-pipeline
+                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-stage-prod-pipeline
+            - Effect: Allow
+              Action:
+                - 'codecommit:*'
+              Resource: 
+                - !Sub 'arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepo}'
+            - Effect: Allow
+              Action:
+                - 'codebuild:StartBuild'
+                - 'codebuild:BatchGetBuilds'
+              Resource: 
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-deploy-project'
+            - Effect: Allow
+              Action:
+                - 'kms:*'
+              Resource: 
+                - !Ref PipelineBucketKMSKeyARN
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: 
+                - !Ref DevAccountDeploymentRoleARN
+                - !Ref TestAccountDeploymentRoleARN
+                - !Ref StageAccountDeploymentRoleARN
+                - !Ref ProdAccountDeploymentRoleARN
+    PipelineRole:
+      Type: AWS::IAM::Role
+      Properties:
+          RoleName: !Sub '${AppCode}-CodePipeline-Role'
+          AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codepipeline.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codebuild.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - lambda.amazonaws.com
+          Path: /
+          ManagedPolicyArns:
+              - !Ref PipelinePolicy
+    PipelineDevTest:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyARN
+                  Type: KMS
+            Name: !Sub ${AppCode}-dev-test-pipeline
+            RoleArn: !GetAtt PipelineRole.Arn
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: SourceTrigger
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeCommit
+                        Version: 1
+                      Configuration:
+                        RepositoryName: !Ref CodeCommitRepo
+                        BranchName: !Ref CodeCommitDevBranch
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: DevDeploy
+                  Actions:
+                    - Name: DevDeploy
+                      Namespace: devbuildvariables
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DevAccountDeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"dev","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: DevBuildZip
+                      RunOrder: 1
+                - Name: TestApproval
+                  Actions:
+                    - Name: TestApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: TestDeploy
+                  Actions:
+                    - Name: TestDeploy
+                      Namespace: testbuildvariables
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${TestAccountDeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"test","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: TestBuildZip
+                      RunOrder: 1
+    PipelineStageProd:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyARN
+                  Type: KMS
+            Name: !Sub ${AppCode}-stage-prod-pipeline
+            RoleArn: !GetAtt PipelineRole.Arn
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: SourceTrigger
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeCommit
+                        Version: 1
+                      Configuration:
+                        RepositoryName: !Ref CodeCommitRepo
+                        BranchName: !Ref CodeCommitProdBranch
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: StageApproval
+                  Actions:
+                    - Name: StageApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: StageDeploy
+                  Actions:
+                    - Name: StageDeploy
+                      Namespace: stagebuildvariables
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${StageAccountDeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"stage","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: StgBuildZip
+                      RunOrder: 1
+                - Name: ProdApproval
+                  Actions:
+                    - Name: ProdApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: ProdDeploy
+                  Actions:
+                    - Name: ProdDeploy
+                      Namespace: prodbuildvariables
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${StageAccountDeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"prod","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: ProdBuildZip
+                      RunOrder: 1

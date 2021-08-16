@@ -1,0 +1,3 @@
+[console_scripts]
+treepoem = treepoem.__main__:main
+

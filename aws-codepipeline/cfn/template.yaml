@@ -1,0 +1,16 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates test S3 bucket
+Parameters:
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-pipeline
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: myenv
+Resources:
+  TestLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '${AppCode}-${Environment}-LogGroup'

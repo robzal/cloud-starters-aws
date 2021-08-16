@@ -1,0 +1,94 @@
+version: 0.2
+
+env:
+  variables:
+    BUILD_BUCKET: "238160719262-builds"
+    CLOUDFORMATION_BUCKET: "238160719262-cloudformation"
+    DEPLOYMENT_ROLE: ""
+    APP_CODE: ""
+    PIPELINE_NAME: ""
+    REPOSITORY_NAME: ""
+    BRANCH_NAME: ""
+    COMMIT_ID: ""
+    ENV_FILE: ".env"
+    ENVIRONMENT: "env"
+    PARAMS: ""
+    SAM_DEBUG_OPTION:
+  exported-variables:
+    - PARAMS 
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.7
+    commands:
+      # Install Git Client
+      - apt-get update
+      - apt-get install --assume-yes git docker sudo
+      - pip3 uninstall --yes awscli
+      - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      - unzip awscliv2.zip
+      - sudo ./aws/install --update
+  pre_build:
+    commands:
+      - echo Build started on `date`
+      - echo Configuring AWS CLI
+      - aws --version
+      - aws configure set aws_access_key_id "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .AccessKeyId)"
+      - aws configure set aws_secret_access_key "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .SecretAccessKey)"
+      - aws configure set aws_session_token "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .Token)"
+      - aws configure set profile.deployrole.region ${AWS_REGION}
+      - aws configure set profile.deployrole.source_profile default
+      - aws configure set profile.deployrole.role_arn $DEPLOYMENT_ROLE
+
+      - echo Configuring Git Client to use AWS CLI Creds
+      - git --version
+      - git config --global credential.helper '!aws codecommit credential-helper $@'
+      - git config --global credential.UseHttpPath true
+      - echo Cloning $REPOSITORY_NAME
+      - git clone https://git-codecommit.${AWS_REGION}.amazonaws.com/v1/repos/$REPOSITORY_NAME
+      - echo Checking out Branch/CommitID  $BRANCH_NAME / $COMMIT_ID
+      - cd $REPOSITORY_NAME
+      # TODO use $BRANCH_NAME if not $COMMIT_ID
+      - git checkout $COMMIT_ID
+
+      - echo Reading in env file $ENV_FILE
+      - cp $ENV_FILE .env
+      - chmod 777 .env
+      - sed -i '/^export AWS_PROFILE/d' .env
+      # store passed in ENVIRONMENT 
+      - export MYENVIRONMENT=$ENVIRONMENT
+      - export MYAPPCODE=$APP_CODE
+      - . ./.env
+      # override ENVIRONMENT with name passed in
+      - export ENVIRONMENT=$MYENVIRONMENT
+      - export APP_CODE=$MYAPPCODE
+      - echo Build set for environment $ENVIRONMENT
+        
+  build:
+    commands:
+
+      - echo validate awscli version
+      - aws --version
+
+      - echo prepare template parameters
+      - envsubst < cfn/template.params > .params.tmp
+      - cat .params.tmp | sed 's/\r//g' | sed 's/\n//g' > .params
+
+      - |
+        aws cloudformation deploy \
+          --template-file cfn/template.yaml \
+          --s3-bucket ${CLOUDFORMATION_BUCKET} \
+          --s3-prefix ${APP_CODE} \
+          --stack-name "${APP_CODE}-${ENVIRONMENT}-stack" \
+          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+          --no-fail-on-empty-changeset \
+          --profile deployrole \
+          --region ${AWS_REGION} \
+          --parameter-overrides $(cat .params)
+
+
+  post_build:
+    commands:
+      - export PARAMS=Build-1234
+      - echo Build completed on `date`

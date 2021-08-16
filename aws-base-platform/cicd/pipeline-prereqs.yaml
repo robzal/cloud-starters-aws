@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates pre-requisite S3 buckets, policies and CMK KMS key and grants access to other deployment accounts
+Parameters:
+  DeploymentAccounts:
+    Description: AWS AccountNumber for prod
+    Type: CommaDelimitedList
+    Default: arn:aws:iam::238160719262:root,arn:aws:iam::238160719262:root
+  CreateRulesPipelinesPrereqs:
+    Description: Whether or not to deploy flexi pipeline buckets / cloudtrail
+    Type: String 
+    Default: "True"
+    AllowedValues:
+      - 'True'
+      - 'False'
+Conditions:
+  ShouldCreateRulesPipelinesPrereqs: !Equals 
+    - !Ref CreateRulesPipelinesPrereqs
+    - "True"
+Resources:
+  PipelineKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Used by Pipeline Role and Resource Deployment Roles for Pipeline Artifacts
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:*"
+            Resource: "*"
+          -
+            Sid: Allow use of the key By cross account identities
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          -
+            Sid: Allow use of the key By cross account identities
+            Effect: Allow
+            Principal:
+              AWS: !Ref DeploymentAccounts
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  PipelineKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/codepipeline-key
+      TargetKeyId: !Ref PipelineKMSKey
+  PipelineBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-pipelines'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+  PipelineBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref PipelineBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Accounts access to pipeline bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${PipelineBucket.Arn}/*'
+              - !Sub '${PipelineBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Accounts access to pipeline bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${PipelineBucket.Arn}/*'
+              - !Sub '${PipelineBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccounts
+  BuildBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-builds'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+  BuildBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref BuildBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Cross Account access to build bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${BuildBucket.Arn}/*'
+              - !Sub '${BuildBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Cross Account access to build bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${BuildBucket.Arn}/*'
+              - !Sub '${BuildBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccounts
+  CloudformationBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-cloudformation'
+  CloudformationBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref CloudformationBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Cross Account access to Cloudformation bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${CloudformationBucket.Arn}/*'
+              - !Sub '${CloudformationBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Cross Account access to Cloudformation bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${CloudformationBucket.Arn}/*'
+              - !Sub '${CloudformationBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccounts
+
+  PipelineEventBucket:
+    Type: AWS::S3::Bucket
+    Condition: ShouldCreateRulesPipelinesPrereqs
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-pipeline-events'
+      VersioningConfiguration:
+        Status: Enabled
+  CloudTrailTrail:
+    Type: "AWS::CloudTrail::Trail"
+    Condition: ShouldCreateRulesPipelinesPrereqs
+    Properties:
+      TrailName: !Sub '${AWS::AccountId}-cloudtrail-pipeline-events'
+      IsLogging: true
+      S3BucketName: !Sub '${AWS::AccountId}-cloudtrail'
+      EventSelectors:
+        - DataResources:
+            - Type: "AWS::S3::Object"
+              Values:
+                - !Sub "${PipelineEventBucket.Arn}/"
+          IncludeManagementEvents: false
+          ReadWriteType: WriteOnly
+Outputs:
+  PipelineBucket:
+    Value: !Ref PipelineBucket
+  BuildBucket:
+    Value: !Ref BuildBucket

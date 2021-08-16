@@ -1,0 +1,589 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: The following CloudFormation deploys demo serverless resources
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  AppCode:
+    Type: String
+    Default: demo-serverless
+  TZ:
+    Type: String
+    Default: Australia/Melbourne
+  SubnetIds:
+    Type: String
+    Default: subnet-d6f10a9e,subnet-513f4709,subnet-0e33fd68
+  APICustomDomain:
+    Type: String
+    Default: www.something.com
+Globals:
+  Function:
+    Environment:
+      Variables:
+        TZ:
+          Ref: TZ
+Resources:
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ${AppCode}-${Environment}-reports
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            KMSMasterKeyID:
+              Fn::Sub: arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3
+            SSEAlgorithm: aws:kms
+      LoggingConfiguration:
+        DestinationBucketName:
+          Fn::Sub: ${AWS::AccountId}-logging
+        LogFilePrefix: s3serveraccesslogs/reports
+  DataLoadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: ${AppCode}-${Environment}-data-load
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            KMSMasterKeyID:
+              Fn::Sub: arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3
+            SSEAlgorithm: aws:kms
+      VersioningConfiguration:
+        Status: Enabled
+      LoggingConfiguration:
+        DestinationBucketName:
+          Fn::Sub: ${AWS::AccountId}-logging
+        LogFilePrefix: s3serveraccesslogs/data-load
+  UsersDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AppCode}-${Environment}-users
+      AttributeDefinitions:
+      - AttributeName: userid
+        AttributeType: S
+      - AttributeName: firstname
+        AttributeType: S
+      - AttributeName: surname
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userid
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+      - IndexName: firstname-index
+        KeySchema:
+        - AttributeName: firstname
+          KeyType: HASH
+        Projection:
+          NonKeyAttributes:
+          - surname
+          - userid
+          ProjectionType: INCLUDE
+      - IndexName: surname-index
+        KeySchema:
+        - AttributeName: surname
+          KeyType: HASH
+        Projection:
+          NonKeyAttributes:
+          - firstname
+          - userid
+          ProjectionType: INCLUDE
+  ReportsDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AppCode}-${Environment}-reports
+      AttributeDefinitions:
+      - AttributeName: reportid
+        AttributeType: S
+      - AttributeName: date
+        AttributeType: S
+      KeySchema:
+      - AttributeName: reportid
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+      - IndexName: date-index
+        KeySchema:
+        - AttributeName: date
+          KeyType: HASH
+        Projection:
+          NonKeyAttributes:
+          - reportid
+          ProjectionType: INCLUDE
+  S3ReadWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ${AppCode}-${Environment}-S3-ReadWrite-Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListBucket
+          - s3:GetBucket*
+          - s3:GetObject*
+          - s3:PutObject
+          - s3:PutObjectTagging
+          - s3:DeleteObject
+          - s3:DeleteObjectTagging
+          - s3:ListMultipartUploadParts
+          - s3:AbortMultipartUpload
+          Resource:
+          - Fn::Sub: arn:aws:s3:::${AppCode}-${Environment}-reports
+          - Fn::Sub: arn:aws:s3:::${AppCode}-${Environment}-reports/*
+          - Fn::Sub: arn:aws:s3:::${AppCode}-${Environment}-data-load
+          - Fn::Sub: arn:aws:s3:::${AppCode}-${Environment}-data-load/*
+  DynamoReadWritePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ${AppCode}-${Environment}-DynamoDB-ReadWrite-Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:BatchGet*
+          - dynamodb:DescribeStream
+          - dynamodb:DescribeTable
+          - dynamodb:Get*
+          - dynamodb:Query
+          - dynamodb:Scan
+          - dynamodb:BatchWrite*
+          - dynamodb:DeleteItem
+          - dynamodb:UpdateItem
+          - dynamodb:PutItem
+          Resource:
+          - Fn::Sub: ${UsersDynamoDBTable.Arn}
+          - Fn::Sub: ${UsersDynamoDBTable.Arn}/index/*
+          - Fn::Sub: ${ReportsDynamoDBTable.Arn}
+          - Fn::Sub: ${ReportsDynamoDBTable.Arn}/index/*
+  StepFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ${AppCode}-${Environment}-StepFunction-Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - states:Send*
+          - states:StartExecution
+          Resource:
+          - Fn::Sub: arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-ReportEngine
+  CloudwatchPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ${AppCode}-${Environment}-Cloudwatch-Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+          - logs:CreateLog*
+          - logs:GetLog*
+          - logs:PutLog*
+          - logs:DescribeLog*
+          - logs:DeleteMessage*
+          - logs:ListLogDeliveries
+          - logs:UpdateLogDelivery
+          - logs:DeleteLogDelivery
+          - logs:PutResourcePolicy
+          - logs:DescribeResourcePolicies
+          Resource:
+          - '*'
+  StatesExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${AppCode}-${Environment}-StateMachineRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - Fn::Sub: states.${AWS::Region}.amazonaws.com
+          Action: sts:AssumeRole
+        - Effect: Allow
+          Principal:
+            Service:
+            - Fn::Sub: events.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - Ref: CloudwatchPolicy
+      - Ref: StepFunctionPolicy
+      Policies:
+      - PolicyName: StatesExecutionPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            - ecs:RunTask
+            - iam:PassRole
+            Resource: '*'
+  ReportEngineStateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-ReportEngineStateMachine
+  ReportEngineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName:
+        Fn::Sub: ${AppCode}-${Environment}-ReportEngine
+      DefinitionString:
+        Fn::Sub:
+        - "{\n  \"Comment\": \"Report Engine process\",\n  \"StartAt\": \"ReportEngine\"\
+          ,\n  \"States\": {\n      \"ReportEngine\": {\n          \"Type\": \"Task\"\
+          ,\n          \"Resource\": \"arn:aws:states:::ecs:runTask.waitForTaskToken\"\
+          ,\n          \"Parameters\": {\n              \"LaunchType\": \"FARGATE\"\
+          ,\n              \"Cluster\": \"${ServerlessECSCluster}\",\n           \
+          \   \"PlatformVersion\": \"1.4.0\",\n              \"TaskDefinition\": \"\
+          ${ReportEngineTaskDefinition}\",\n              \"NetworkConfiguration\"\
+          : {\n                  \"AwsvpcConfiguration\": {\n                    \
+          \  \"Subnets\": [\n                          \"${NetworkA}\",\n        \
+          \                  \"${NetworkB}\",\n                          \"${NetworkC}\"\
+          \n                      ],\n                      \"AssignPublicIp\": \"\
+          ENABLED\"\n                  }\n              },\n              \"Overrides\"\
+          : {\n                  \"ContainerOverrides\": [\n                     \
+          \ {\n                          \"Name\": \"ReportEngine\",\n           \
+          \               \"Environment\": [\n                              {\n  \
+          \                                \"Name\": \"taskToken\",\n            \
+          \                      \"Value.$\": \"$$.Task.Token\"\n                \
+          \              },\n                              {\n                   \
+          \               \"Name\": \"executionId\",\n                           \
+          \       \"Value.$\": \"$$.Execution.Id\"\n                             \
+          \ }\n                          ]\n                      }\n            \
+          \      ]\n              }\n          },\n          \"HeartbeatSeconds\"\
+          : 3600,\n          \"Retry\": [\n              {\n                  \"ErrorEquals\"\
+          : [\n                      \"States.ALL\"\n                  ],\n      \
+          \            \"IntervalSeconds\": 10,\n                  \"MaxAttempts\"\
+          : 2,\n                  \"BackoffRate\": 1.2\n              }\n        \
+          \  ],\n          \"End\": true\n      }\n  }\n}         "
+        - ServerlessECSCluster:
+            Fn::GetAtt:
+            - ServerlessECSCluster
+            - Arn
+          ReportEngineTaskDefinition:
+            Ref: ReportEngineECSTaskDefinition
+          NetworkA:
+            Fn::Select:
+            - 0
+            - Fn::Split:
+              - ','
+              - Fn::Sub: ${SubnetIds}
+          NetworkB:
+            Fn::Select:
+            - 1
+            - Fn::Split:
+              - ','
+              - Fn::Sub: ${SubnetIds}
+          NetworkC:
+            Fn::Select:
+            - 2
+            - Fn::Split:
+              - ','
+              - Fn::Sub: ${SubnetIds}
+      RoleArn:
+        Fn::GetAtt:
+        - StatesExecutionRole
+        - Arn
+      LoggingConfiguration:
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::GetAtt:
+              - ReportEngineStateMachineLogGroup
+              - Arn
+        IncludeExecutionData: true
+        Level: ERROR
+  Boto3Layer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description:
+        Fn::Sub: Layer for boto3 "
+      ContentUri: s3://238160719262-cloudformation/demo-serverless/09707d729e7a8e800b2d16929d6117a8
+      CompatibleRuntimes:
+      - python3.7
+      LayerName:
+        Fn::Sub: ${AppCode}-${Environment}-Boto3
+  CustomLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description:
+        Fn::Sub: Layer for custom "
+      ContentUri: s3://238160719262-cloudformation/demo-serverless/3465374504a45e68c73793a6f0b5870e
+      CompatibleRuntimes:
+      - python3.7
+      LayerName:
+        Fn::Sub: ${AppCode}-${Environment}-Custom
+  ServerlessECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName:
+        Fn::Sub: ${AppCode}-${Environment}-cluster
+  ServerlessECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+  ReportEngineECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      - Ref: S3ReadWritePolicy
+      - Ref: DynamoReadWritePolicy
+      - Ref: CloudwatchPolicy
+      - Ref: StepFunctionPolicy
+  ReportEngineECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+      - Cpu: 1024
+        Environment:
+        - Name: DDB_USER_TABLE_NAME
+          Value:
+            Fn::Sub: ${AppCode}-${Environment}-users
+        - Name: DDB_REPORT_TABLE_NAME
+          Value:
+            Fn::Sub: ${AppCode}-${Environment}-reports
+        - Name: S3_BUCKET_REPORTS
+          Value:
+            Ref: ReportsBucket
+        - Name: TZ
+          Value:
+            Ref: TZ
+        Image:
+          Fn::Sub: ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AppCode}-${Environment}-report_engine:latest
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Fn::Sub: ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-ReportEngine
+            awslogs-region:
+              Ref: AWS::Region
+            awslogs-stream-prefix: ecs
+        Memory: 2048
+        MemoryReservation: 2048
+        Name: ReportEngine
+      Cpu: 1024
+      ExecutionRoleArn:
+        Ref: ServerlessECSTaskExecutionRole
+      Memory: 2048
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+      - FARGATE
+      TaskRoleArn:
+        Ref: ReportEngineECSTaskRole
+  ReportEngineECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-ReportEngine
+  ReportEngineECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName:
+        Fn::Sub: ${AppCode}-${Environment}-report_engine
+      RepositoryPolicyText:
+        Fn::Sub:
+        - "{\n    \"Version\": \"2008-10-17\",\n    \"Statement\": [\n        {\n\
+          \        \"Sid\": \"new statement\",\n        \"Effect\": \"Allow\",\n \
+          \       \"Principal\": \"*\",\n        \"Action\": \"*\"\n        }\n  \
+          \  ]\n}"
+        - AccountNumber:
+            Ref: AWS::AccountId
+  DataLoadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      FunctionName:
+        Fn::Sub: ${AppCode}-${Environment}-data-load
+      Runtime: python3.7
+      CodeUri: s3://238160719262-cloudformation/demo-serverless/0eb258d1dae49dcf0840af33c7c07f0a
+      MemorySize: 2048
+      Timeout: 900
+      Tracing: Active
+      Layers:
+      - Ref: CustomLayer
+      - Ref: Boto3Layer
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Ref: DynamoReadWritePolicy
+      - Ref: S3ReadWritePolicy
+      Environment:
+        Variables:
+          ENVIRONMENT:
+            Fn::Sub: ${Environment}
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: DataLoadBucket
+            Events: s3:ObjectCreated:*
+  UserAPIFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      FunctionName:
+        Fn::Sub: ${AppCode}-${Environment}-UserAPIFunction
+      Runtime: python3.7
+      CodeUri: s3://238160719262-cloudformation/demo-serverless/44d7ba0d13e6a0ff95110f9188a6c2b3
+      MemorySize: 256
+      Timeout: 300
+      Tracing: Active
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Ref: DynamoReadWritePolicy
+      - Ref: S3ReadWritePolicy
+      Layers:
+      - Ref: Boto3Layer
+      - Ref: CustomLayer
+      Environment:
+        Variables:
+          DDB_USER_TABLE_NAME:
+            Fn::Sub: ${AppCode}-${Environment}-users
+          DDB_REPORT_TABLE_NAME:
+            Fn::Sub: ${AppCode}-${Environment}-reports
+      Events:
+        UsersList:
+          Type: Api
+          Properties:
+            Path: /users
+            Method: get
+            RestApiId:
+              Ref: UserAPI
+        UserGet:
+          Type: Api
+          Properties:
+            Path: /users/{userid}
+            Method: get
+            RestApiId:
+              Ref: UserAPI
+        UserPost:
+          Type: Api
+          Properties:
+            Path: /users/{userid}
+            Method: post
+            RestApiId:
+              Ref: UserAPI
+        UserPut:
+          Type: Api
+          Properties:
+            Path: /users/{userid}
+            Method: put
+            RestApiId:
+              Ref: UserAPI
+        UserDelete:
+          Type: Api
+          Properties:
+            Path: /users/{userid}
+            Method: delete
+            RestApiId:
+              Ref: UserAPI
+        ReportsList:
+          Type: Api
+          Properties:
+            Path: /reports
+            Method: get
+            RestApiId:
+              Ref: UserAPI
+  UserAPICloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+  UserAPIAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt:
+        - UserAPICloudWatchRole
+        - Arn
+  UserAPILogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: API-Gateway-Execution-Logs_${AppCode}-${Environment}-UserAPI
+  UserAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:
+        Fn::Sub: ${AppCode}-${Environment}-UserAPI
+      StageName: v1
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          Description: Usage plan for this API
+          Throttle:
+            BurstLimit: 200
+            RateLimit: 100
+      AccessLogSetting:
+        DestinationArn:
+          Fn::GetAtt:
+          - UserAPILogGroup
+          - Arn
+        Format: '{"requestId":"$context.requestId", "ip": "$context.identity.sourceIp",
+          "caller":"$context.identity.caller", "user":"$context.identity.user","requestTime":"$context.requestTime",
+          "eventType":"$context.eventType","routeKey":"$context.routeKey", "status":"$context.status","connectionId":"$context.connectionId"}'
+      MethodSettings:
+      - MetricsEnabled: true
+        HttpMethod: '*'
+        LoggingLevel: INFO
+        ResourcePath: /*
+  ReportSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Run the Report Engine SFN at the specified intervals.
+      ScheduleExpression: cron(0 1 * * ? *)
+      State: DISABLED
+      Targets:
+      - Id: ReportEngineStateMachineTarget
+        Arn:
+          Ref: ReportEngineStateMachine
+        RoleArn:
+          Fn::GetAtt:
+          - StatesExecutionRole
+          - Arn
