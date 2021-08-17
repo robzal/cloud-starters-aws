@@ -79,6 +79,7 @@ pipeline: pipeline-pre
 
 build:
 	sam build \
+		--template-file ./cfn/template.yaml \
 		--region ${AWS_REGION} \
 		--profile ${BUILD_PROFILE} \
 		${SAM_DEBUG_OPTION}
@@ -87,7 +88,7 @@ build:
 
 deploy-pre:
 
-	$(shell cat ./template.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp)
+	$(shell cat ./cfn/template.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp)
 	envsubst < .params.tmp > .params
 
 .PHONY: deploy-pre
@@ -95,7 +96,7 @@ deploy-pre:
 deploy: deploy-pre build
 	sam package \
 		--template-file .aws-sam/build/template.yaml \
-		--output-template-file template-out.yaml \
+		--output-template-file .template-out.yaml \
 		--s3-bucket ${CLOUDFORMATION_BUCKET} \
 		--s3-prefix ${APP_CODE} \
 		--profile ${BUILD_PROFILE} \
@@ -103,7 +104,7 @@ deploy: deploy-pre build
 		${SAM_DEBUG_OPTION}
 
 	sam deploy \
-		--template-file template-out.yaml \
+		--template-file .template-out.yaml \
 		--s3-bucket ${CLOUDFORMATION_BUCKET} \
 		--s3-prefix ${APP_CODE} \
 		--stack-name "${APP_CODE}-${ENVIRONMENT}-stack" \
@@ -136,8 +137,8 @@ dockerimages:
 	@echo Logging into ECR
 	VAR=$$(aws ecr get-login --no-include-email --region ${AWS_REGION} --profile ${AWS_PROFILE}) && bash -c "$$VAR"
 	@echo Building and Packaging ReportsEnging Docker Image
-	docker image build --tag ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report_engine:latest -f docker/ReportsEngine/Dockerfile .
+	docker image build --tag ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report-engine:latest -f docker/ReportsEngine/Dockerfile .
 	@echo Pushing ReportEngine Image to ECR
-	docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report_engine:latest
+	docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report-engine:latest
 
 .PHONY: dockerimages

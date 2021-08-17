@@ -1,4 +1,4 @@
 Environment=${ENVIRONMENT}
 AppCode=${APP_CODE}
 TZ=${TZ}
-SubnetIds=${SUBNET_IDS}
+SubnetIds=${FARGATE_SUBNET_IDS}

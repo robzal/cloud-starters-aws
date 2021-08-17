@@ -253,10 +253,9 @@ Resources:
                               "AwsvpcConfiguration": {
                                   "Subnets": [
                                       "${NetworkA}",
-                                      "${NetworkB}",
-                                      "${NetworkC}"
+                                      "${NetworkB}"
                                   ],
-                                  "AssignPublicIp": "ENABLED"
+                                  "AssignPublicIp": "DISABLED"
                               }
                           },
                           "Overrides": {
@@ -297,7 +296,6 @@ Resources:
             ReportEngineTaskDefinition: !Ref 'ReportEngineECSTaskDefinition'
             NetworkA: !Select [0, !Split [',', !Sub "${SubnetIds}"]]
             NetworkB: !Select [1, !Split [',', !Sub "${SubnetIds}"]]
-            NetworkC: !Select [2, !Split [',', !Sub "${SubnetIds}"]]
       RoleArn: !GetAtt 'StatesExecutionRole.Arn'
       LoggingConfiguration:
         Destinations:
@@ -311,17 +309,17 @@ Resources:
     Type: 'AWS::Serverless::LayerVersion'
     Properties:
       Description: !Sub 'Layer for boto3 "'
-      ContentUri: ./layers/boto3/
+      ContentUri: ../src/layers/boto3/
       CompatibleRuntimes:
-        - 'python3.7'
+        - 'python3.8'
       LayerName: !Sub '${AppCode}-${Environment}-Boto3'
   CustomLayer:
     Type: 'AWS::Serverless::LayerVersion'
     Properties:
       Description: !Sub 'Layer for custom "'
-      ContentUri: ./layers/custom/
+      ContentUri: ../src/layers/custom/
       CompatibleRuntimes:
-        - 'python3.7'
+        - 'python3.8'
       LayerName: !Sub '${AppCode}-${Environment}-Custom'
 
   ServerlessECSCluster:
@@ -380,7 +378,7 @@ Resources:
             - 
               Name: TZ
               Value: !Ref 'TZ'
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AppCode}-${Environment}-report_engine:latest'
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AppCode}-${Environment}-report-engine:latest'
           LogConfiguration: 
             LogDriver: awslogs
             Options:
@@ -395,8 +393,7 @@ Resources:
       Memory: 2048
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
-        - 
-          "FARGATE"
+        - "FARGATE"
       TaskRoleArn: !Ref ReportEngineECSTaskRole
   ReportEngineECSLogGroup:
     Type: AWS::Logs::LogGroup
@@ -405,7 +402,7 @@ Resources:
   ReportEngineECRRepository:
     Type: AWS::ECR::Repository
     Properties: 
-      RepositoryName:  !Sub ${AppCode}-${Environment}-report_engine
+      RepositoryName:  !Sub ${AppCode}-${Environment}-report-engine
       RepositoryPolicyText:
         !Sub
           - |-
@@ -428,10 +425,10 @@ Resources:
     Properties:
       Handler: 'lambda_function.lambda_handler'
       FunctionName: !Sub '${AppCode}-${Environment}-data-load'
-      Runtime: 'python3.7'
-      CodeUri: './lambdas/dataload/'
+      Runtime: 'python3.8'
+      CodeUri: '../src/lambdas/dataload/'
       MemorySize: 2048
-      Timeout: 900
+      Timeout: 300
       Tracing: 'Active'
       Layers:
         - !Ref 'CustomLayer'
@@ -454,8 +451,8 @@ Resources:
     Properties:
       Handler: 'lambda_function.lambda_handler'
       FunctionName: !Sub '${AppCode}-${Environment}-UserAPIFunction'
-      Runtime: 'python3.7'
-      CodeUri: './lambdas/user_api/'
+      Runtime: 'python3.8'
+      CodeUri: '../src/lambdas/user_api/'
       MemorySize: 256
       Timeout: 300
       Tracing: 'Active'
