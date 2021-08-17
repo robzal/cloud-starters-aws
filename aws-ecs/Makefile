@@ -73,14 +73,14 @@ pipeline: pipeline-pre
 
 .PHONY: pipeline
 
-deploy-pre:
+deploy-cluster-pre:
 
-	$(shell cat ./cfn/template.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp)
+	$(shell cat ./cfn/ecs-cluster.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp)
 	envsubst < .params.tmp > .params
 
-.PHONY: deploy-pre
+.PHONY: deploy-cluster-pre
 
-deploy-cluster:
+deploy-cluster: deploy-cluster-pre
 	aws cloudformation deploy \
 		--template-file cfn/ecs-cluster.yaml \
 		--s3-bucket ${CLOUDFORMATION_BUCKET} \
@@ -90,11 +90,19 @@ deploy-cluster:
 		--region ${AWS_REGION} \
 		--profile ${AWS_PROFILE} \
 		--no-fail-on-empty-changeset \
-		--no-execute-changeset 
+		--no-execute-changeset \
+		--parameter-overrides $(shell cat .params)
 
 .PHONY: deploy-cluster
 
-deploy:
+deploy-app-pre:
+
+	$(shell cat ./cfn/ecs-app.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp)
+	envsubst < .params.tmp > .params
+
+.PHONY: deploy-app-pre
+
+deploy-app: deploy-app-pre
 	aws cloudformation deploy \
 		--template-file cfn/ecs-app.yaml \
 		--s3-bucket ${CLOUDFORMATION_BUCKET} \
@@ -104,6 +112,7 @@ deploy:
 		--region ${AWS_REGION} \
 		--profile ${AWS_PROFILE} \
 		--no-fail-on-empty-changeset \
-		--no-execute-changeset 
+		--no-execute-changeset \
+		--parameter-overrides $(shell cat .params)
 
-.PHONY: deploy
+.PHONY: deploy-app

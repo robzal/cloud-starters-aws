@@ -1,5 +1,5 @@
 Description: >
-    Deploy an ECS service on either AWS Fargate or EC2, hosted in a private subnet, but optionally accessible via a public load balancer
+    Deploy an ECS service on either AWS Fargate, EC2 or Windows, hosted in a private subnet, but optionally accessible via a public load balancer
 
 Parameters: 
     AppCode:
@@ -10,15 +10,14 @@ Parameters:
         Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
         Type: String
         Default: tools
-    ECSClusterName:
-        Description: Name for the ECS Cluster being deployed to
+    ECSClusterNameLinux:
+        Description: Name for the Linux Cluster being deployed to
         Type: String
-        Default: demo-ecs-tools-ECS-Cluster
-    ECSTaskImage:
-        Description: The container image to use
+        Default: demo-ecs-tools-Linux-Cluster
+    ECSClusterNameWindows:
+        Description: Name for the Windows Cluster being deployed to
         Type: String
-        # Default: 238160719262.dkr.ecr.ap-southeast-2.amazonaws.com/girl-grads-server:latest
-        Default: nginxdemos/hello
+        Default: demo-ecs-tools-Windows-Cluster
     ECSClusterVPCID:
         Description: VPCID to deploy this infrastructure into
         Type: String
@@ -57,8 +56,21 @@ Parameters:
         Description: Subnet ID 2 for Cluster
         Type: String
         Default: subnet-0e9b388e5542d5e76
+    ECSTaskImageLinux:
+        Description: The container image to use for linux tasks
+        Type: String
+        Default: nginxdemos/hello
+        # Default: 238160719262.dkr.ecr.ap-southeast-2.amazonaws.com/nginx:latest
+    ECSTaskImageWindows:
+        Description: The container image to use for windows tasks
+        Type: String
+        Default: mcr.microsoft.com/windows/servercore/iis:windowsservercore-20H2
     ECSTaskCountEC2:
         Description: The number of service tasks to run on EC2 resources
+        Type: Number
+        Default: 0
+    ECSTaskCountWindows:
+        Description: The number of service tasks to run on Windows resources
         Type: Number
         Default: 0
     ECSTaskCountFargate:
@@ -69,6 +81,10 @@ Parameters:
         Description: The load bal port number of the ECS EC2 service (must be different to fargate service)
         Type: Number
         Default: 8080
+    ECSTaskPortWindows:
+        Description: The load bal port number of the ECS Windows service (must be different to fargate service)
+        Type: Number
+        Default: 8000
     ECSTaskPortFargate:
         Description: The load bal port number of the ECS fargate service (must be different to ec2 service)
         Type: Number
@@ -175,7 +191,7 @@ Resources:
             ContainerDefinitions:
                 - Name: !Sub ${AppCode}-${Environment}-ec2
                   Essential: true
-                  Image: !Ref ECSTaskImage
+                  Image: !Ref ECSTaskImageLinux
                   MemoryReservation: 1024
                   PortMappings:
                     - ContainerPort: 80
@@ -192,7 +208,7 @@ Resources:
         Type: AWS::ECS::Service
         DependsOn: TaskDefinitionEC2
         Properties: 
-            Cluster: !Ref ECSClusterName
+            Cluster: !Ref ECSClusterNameLinux
             ServiceName: !Sub ${AppCode}-${Environment}-ec2
             Role: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS
             DesiredCount: !Ref ECSTaskCountEC2
@@ -201,6 +217,83 @@ Resources:
                 - ContainerName: !Sub ${AppCode}-${Environment}-ec2
                   ContainerPort: 80
                   TargetGroupArn: !Ref TargetGroupEC2
+
+    TargetGroupWindows:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Windows-TG
+            VpcId: !Ref ECSClusterVPCID
+            Port: 80
+            Protocol:  HTTP
+            TargetType: ip
+            HealthCheckPath: "/"
+    LoadBalancerListenerWindows:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn: !Ref LoadBalancer
+            Port: !Ref ECSTaskPortWindows
+            Protocol: !If [DoHTTPS, HTTPS, HTTP]
+            Certificates:  
+                - !If [DoHTTPS, !Ref ECSLoadBalCertificate, !Ref 'AWS::NoValue']
+            DefaultActions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroupWindows
+    ListenerRuleWindows:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerWindows
+            Priority: 2
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupWindows
+                  Type: forward            
+    TaskDefinitionWindows:
+        Type: AWS::ECS::TaskDefinition
+        DependsOn: ListenerRuleWindows
+        Properties:
+            Family: !Sub ${AppCode}-${Environment}-windows
+            NetworkMode: awsvpc
+            # not working - reverts to instance role
+            # ExecutionRoleArn: !Ref TaskExecutionRole
+            TaskRoleArn: !Ref TaskRole
+            ContainerDefinitions:
+                - Name: !Sub ${AppCode}-${Environment}-windows
+                  Essential: true
+                  Image: !Ref ECSTaskImageWindows
+                  Cpu: 1024
+                  Memory: 2048
+                  PortMappings:
+                    - ContainerPort: 80
+                  LogConfiguration:
+                    LogDriver: awslogs
+                    Options:
+                        awslogs-create-group: true
+                        awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-windows'
+                        awslogs-region: !Ref AWS::Region
+                        awslogs-stream-prefix: "log"  
+    ServiceWindows: 
+        Type: AWS::ECS::Service
+        DependsOn: TaskDefinitionWindows
+        Properties: 
+            Cluster: !Ref ECSClusterNameWindows
+            ServiceName: !Sub ${AppCode}-${Environment}-windows
+            DesiredCount: !Ref ECSTaskCountWindows
+            TaskDefinition: !Ref TaskDefinitionWindows
+            LaunchType: EC2
+            NetworkConfiguration:
+                AwsvpcConfiguration:
+                    AssignPublicIp: DISABLED
+                    Subnets: 
+                        - !Ref ECSClusterSubnet1
+                        - !Ref ECSClusterSubnet2
+                    SecurityGroups: !Ref ECSLoadBalSecGroups
+            LoadBalancers: 
+                - ContainerName: !Sub ${AppCode}-${Environment}-windows
+                  ContainerPort: 80
+                  TargetGroupArn: !Ref TargetGroupWindows
 
     TargetGroupFargate:
         Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -251,7 +344,7 @@ Resources:
                 Cpu: 512
                 Memory: 1024
                 MemoryReservation: 1024
-                Image: !Ref ECSTaskImage
+                Image: !Ref ECSTaskImageLinux
                 PortMappings:
                 - ContainerPort: 80
                 Environment: 
@@ -271,7 +364,7 @@ Resources:
         DependsOn: TaskDefinitionFargate
         Properties: 
             ServiceName: !Sub ${AppCode}-${Environment}-fargate
-            Cluster: !Ref ECSClusterName
+            Cluster: !Ref ECSClusterNameLinux
             LaunchType: FARGATE
             DesiredCount: !Ref ECSTaskCountFargate
             TaskDefinition: !Ref TaskDefinitionFargate

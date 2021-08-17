@@ -1,8 +1,6 @@
 Description: >
-    This Template Creates the Microservices ECSCluster for B2Bi Network.
-
+    This Template Creates ECS Clusters for Linux and Windows Containers.
 Parameters: 
-
     AppCode:
         Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
         Type: String
@@ -11,6 +9,15 @@ Parameters:
         Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
         Type: String
         Default: tools
+
+    ECSClusterNameLinux:
+        Description: Name for the Linux Cluster being deployed to
+        Type: String
+        Default: demo-ecs-tools-Linux-Cluster
+    ECSClusterNameWindows:
+        Description: Name for the Windows Cluster being deployed to
+        Type: String
+        Default: demo-ecs-tools-Windows-Cluster
 
     ECSLinuxInstanceCount: 
         Description: How many instances will launch for the ECS Cluster?
@@ -23,7 +30,7 @@ Parameters:
     ECSLinuxInstanceAMI:
         Description: Instance AMI for the ECS Cluster (Non Fargate)
         Type: String
-        # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+        # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
         Default: ami-0a53f55dfbc2fe407
     ECSLinuxInstanceKey:
         Type: AWS::EC2::KeyPair::KeyName
@@ -40,7 +47,7 @@ Parameters:
     ECSWindowsInstanceAMI:
         Description: Instance AMI for the ECS Cluster (Non Fargate)
         Type: String
-        # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+        # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_windows_AMI.html
         Default: ami-0a358cdbb6d90dbbd
     ECSWindowsInstanceKey:
         Type: AWS::EC2::KeyPair::KeyName
@@ -92,7 +99,8 @@ Resources:
                         - "sts:AssumeRole"
             RoleName: !Sub "${AppCode}-${Environment}-ECS-Instance-Role"
             ManagedPolicyArns:
-                - !Sub "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+                - "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+                - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
             Path: /
     ECSNodeInstanceProfile:
         Type: "AWS::IAM::InstanceProfile"
@@ -104,7 +112,7 @@ Resources:
     ECSCluster:
         Type: AWS::ECS::Cluster
         Properties:
-            ClusterName: !Sub ${AppCode}-${Environment}-Linux-Cluster
+            ClusterName: !Ref ECSClusterNameLinux
     ECSLaunchConfiguration:
         Type: AWS::AutoScaling::LaunchConfiguration
         Properties:
@@ -116,7 +124,7 @@ Resources:
             UserData:
                 "Fn::Base64": !Sub |
                     #!/bin/bash
-                    echo ECS_CLUSTER=${AppCode}-${Environment}-Linux-Cluster >> /etc/ecs/ecs.config;
+                    echo ECS_CLUSTER=${ECSClusterNameLinux} >> /etc/ecs/ecs.config;
                     echo ECS_BACKEND_HOST= >> /etc/ecs/ecs.config;
                     
                     # Stop the ECS agent container
@@ -157,7 +165,7 @@ Resources:
     ECSClusterWindows:
         Type: AWS::ECS::Cluster
         Properties:
-            ClusterName: !Sub ${AppCode}-${Environment}-Windows-Cluster
+            ClusterName: !Ref ECSClusterNameWindows
     ECSLaunchConfigurationWindows:
         Type: AWS::AutoScaling::LaunchConfiguration
         Properties:
@@ -169,7 +177,7 @@ Resources:
             UserData:
                 "Fn::Base64": !Sub |
                     <powershell>
-                    Initialize-ECSAgent -Cluster ${AppCode}-${Environment}-Windows-Cluster -EnableTaskIAMRole -LoggingDrivers '["json-file","awslogs"]' -EnableTaskENI 
+                    Initialize-ECSAgent -Cluster ${ECSClusterNameWindows} -EnableTaskIAMRole -LoggingDrivers '["json-file","awslogs"]' -EnableTaskENI 
                     </powershell>
     ECSAutoScalingGroupWindows:
         Type: AWS::AutoScaling::AutoScalingGroup
