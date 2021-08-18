@@ -14,9 +14,32 @@ Parameters:
   SubnetIds:
     Type: 'String'
     Default: 'subnet-d6f10a9e,subnet-513f4709,subnet-0e33fd68'
-  APICustomDomain:
+  CreateAPIKey:
     Type: 'String'
-    Default: 'www.something.com'
+    Default: 'True'
+    AllowedValues: ['True', 'False']
+  TaskMemory:
+    Description: Amount of memory assigned to lambda and container tasks
+    Type: 'String'
+    Default: '512'
+    AllowedValues: ['512', '1024', '2048']
+  TaskCPU:
+    Description: Amount of cpu slice assigned to container tasks
+    Type: 'String'
+    Default: '256'
+    AllowedValues: ['256', '512', '1024']
+  TaskRepository:
+    Type: 'String'
+    Default: '238160719262.dkr.ecr.ap-southeast-2.amazonaws.com'
+  TaskImage:
+    Type: 'String'
+    Default: 'demo-serverless-myenv-report-engine:latest'
+
+Conditions:
+    DoAPIKEY: !Equals 
+      - !Ref CreateAPIKey
+      - 'True'
+
 Globals:
   Function:
     Environment:
@@ -255,7 +278,7 @@ Resources:
                                       "${NetworkA}",
                                       "${NetworkB}"
                                   ],
-                                  "AssignPublicIp": "DISABLED"
+                                  "AssignPublicIp": "ENABLED"
                               }
                           },
                           "Overrides": {
@@ -362,9 +385,17 @@ Resources:
   ReportEngineECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties: 
+      Family: !Sub ${AppCode}-${Environment}-reports-engine
+      ExecutionRoleArn: !Ref ServerlessECSTaskExecutionRole
+      TaskRoleArn: !Ref ReportEngineECSTaskRole
+      Cpu: !Ref TaskCPU
+      Memory: !Ref TaskMemory
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities: 
+        - "FARGATE"
       ContainerDefinitions: 
         - 
-          Cpu: 1024
+          Cpu: !Ref TaskCPU
           Environment: 
             - 
               Name: DDB_USER_TABLE_NAME
@@ -378,23 +409,16 @@ Resources:
             - 
               Name: TZ
               Value: !Ref 'TZ'
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AppCode}-${Environment}-report-engine:latest'
+          Image: !Sub '${TaskRepository}/${TaskImage}'
           LogConfiguration: 
             LogDriver: awslogs
             Options:
               awslogs-group: !Sub 'ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-ReportEngine'
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: "ecs"
-          Memory: 2048
-          MemoryReservation: 2048
+          Memory: !Ref TaskMemory
+          MemoryReservation: !Ref TaskMemory
           Name: ReportEngine
-      Cpu: 1024
-      ExecutionRoleArn: !Ref ServerlessECSTaskExecutionRole
-      Memory: 2048
-      NetworkMode: "awsvpc"
-      RequiresCompatibilities: 
-        - "FARGATE"
-      TaskRoleArn: !Ref ReportEngineECSTaskRole
   ReportEngineECSLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -427,7 +451,7 @@ Resources:
       FunctionName: !Sub '${AppCode}-${Environment}-data-load'
       Runtime: 'python3.8'
       CodeUri: '../src/lambdas/dataload/'
-      MemorySize: 2048
+      MemorySize: !Ref TaskMemory
       Timeout: 300
       Tracing: 'Active'
       Layers:
@@ -453,7 +477,7 @@ Resources:
       FunctionName: !Sub '${AppCode}-${Environment}-UserAPIFunction'
       Runtime: 'python3.8'
       CodeUri: '../src/lambdas/user_api/'
-      MemorySize: 256
+      MemorySize: !Ref TaskMemory
       Timeout: 300
       Tracing: 'Active'
       Policies:
@@ -534,7 +558,7 @@ Resources:
       Name: !Sub '${AppCode}-${Environment}-UserAPI'
       StageName: v1
       Auth:
-        ApiKeyRequired: true
+        ApiKeyRequired: !If [ DoAPIKEY, true, false ]
         UsagePlan:
           CreateUsagePlan: PER_API
           Description: Usage plan for this API

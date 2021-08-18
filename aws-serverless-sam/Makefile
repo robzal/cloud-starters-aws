@@ -111,6 +111,7 @@ deploy: deploy-pre build
 		--capabilities CAPABILITY_NAMED_IAM \
 		--region ${AWS_REGION} \
 		--profile ${AWS_PROFILE} \
+		--no-fail-on-empty-changeset \
 		--no-execute-changeset \
 		--parameter-overrides $(shell cat .params) \
 		${SAM_DEBUG_OPTION}
@@ -135,10 +136,11 @@ run:  deploypre
 dockerimages:
 
 	@echo Logging into ECR
-	VAR=$$(aws ecr get-login --no-include-email --region ${AWS_REGION} --profile ${AWS_PROFILE}) && bash -c "$$VAR"
+	aws ecr get-login-password --region ap-southeast-2 --profile ${AWS_PROFILE} | docker login --username AWS --password-stdin ${DOCKER_REPOSITORY}
+
 	@echo Building and Packaging ReportsEnging Docker Image
-	docker image build --tag ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report-engine:latest -f docker/ReportsEngine/Dockerfile .
+	docker image build --tag ${DOCKER_REPOSITORY}/${DOCKER_IMAGE} -f docker/ReportsEngine/Dockerfile .
 	@echo Pushing ReportEngine Image to ECR
-	docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_CODE}-${ENVIRONMENT}-report-engine:latest
+	docker push ${DOCKER_REPOSITORY}/${DOCKER_IMAGE}
 
 .PHONY: dockerimages
