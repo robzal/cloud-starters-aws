@@ -1,5 +1,5 @@
   AWSTemplateFormatVersion: "2010-09-09"
-  Description: "Creates a VPC with optional NAT Gateway, VPC Peering and/or VPN Endpoint"
+  Description: "Creates a VPC peering connections and/or peering routes"
   Parameters:
     CreatePeeringConnection:
       Description: Create or remove VPC Peering Connection.
@@ -11,10 +11,29 @@
       Type: String
       Default: true
       AllowedValues: [true, false]
+    PeerVPCID:
+      Description: The VPC ID of the VPC being peered to.
+      Type: String
+      Default: ""
+    PeerVPCAccountID:
+      Description: The accountID containing the VPC to peer to.
+      Type: String
+      Default: "238160719262"
+    PeerVPCRoleArn:
+      Description: The arn of the peering role to assume.
+      Type: String
+    PeerVPCCIDRBlock:
+      Description: The CIDR Block of the Peered VPC.
+      Type: String
+      Default: "10.0.0.0/16"
+    PeerVPCConnection:
+      Description: The Existing Peering Connection ID of the Peered VPC to route to.
+      Type: String
+      Default: ""
     LocalVPCID:
       Description: The VPC ID of the VPC being peered from.
       Type: String
-      Default: "vpc-1234567890"
+      Default: ""
     LocalPublicRouteTableID:
       Description: The route table ID for the local VPC public subnet.
       Type: String
@@ -27,31 +46,13 @@
       Description: The route table ID for the local VPC public subnet.
       Type: String
       Default: "rtb-11112222"
-    PeerVPCID:
-      Description: The VPC ID of the VPC being peered to.
-      Type: String
-      Default: 'vpc-1234567890'
-    PeerVPCAccountID:
-      Description: The accountID containing the VPC to peer to.
-      Type: String
-      Default: "111111111111"
-    PeerVPCRoleArn:
-      Description: The arn of the peering role to assume.
-      Type: String
-    PeerVPCCIDRBlock:
-      Description: The CIDR Block of the Peered VPC.
-      Type: String
-      Default: "10.10.0.0/16"
-    PeerVPCConnection:
-      Description: The Existing Peering Connection ID of the Peered VPC to route to.
-      Type: String
-      Default: "pcx-0db81971e1538fec5"
   Conditions:
-    ShouldCreatePeeringConnection:
-      !Equals [true, !Ref CreatePeeringConnection]
-    ShouldCreatePeeringRoute:
-      !Equals [true, !Ref CreatePeeringRoute]
-  
+    ShouldCreatePeeringConnection: !And
+      - !Equals [ 'true', !Ref CreatePeeringConnection ]
+      - !Not [ !Equals [ '', !Ref PeerVPCID ] ]
+    ShouldCreatePeeringRoute: !And
+      - !Equals [ 'true', !Ref CreatePeeringRoute]
+      - !Not [!Equals ['', !Ref PeerVPCConnection]]
   Resources:
     VPCPeeringConnection:
       Type: 'AWS::EC2::VPCPeeringConnection'
@@ -68,18 +69,18 @@
       Properties:
         DestinationCidrBlock: !Ref PeerVPCCIDRBlock
         RouteTableId: !Ref LocalPublicRouteTableID
-        VpcPeeringConnectionId: !Ref VPCPeeringConnection
+        VpcPeeringConnectionId: !Ref PeerVPCConnection
     PrivateRouteToPeeredVPC0:
       Type: 'AWS::EC2::Route'
       Condition: ShouldCreatePeeringRoute
       Properties:
         DestinationCidrBlock: !Ref PeerVPCCIDRBlock
         RouteTableId: !Ref LocalPrivateRouteTableAZ1ID
-        VpcPeeringConnectionId: !Ref VPCPeeringConnection
+        VpcPeeringConnectionId: !Ref PeerVPCConnection
     PrivateRouteToPeeredVPC1:
       Type: 'AWS::EC2::Route'
       Condition: ShouldCreatePeeringRoute
       Properties:
         DestinationCidrBlock: !Ref PeerVPCCIDRBlock
         RouteTableId: !Ref LocalPrivateRouteTableAZ2ID
-        VpcPeeringConnectionId: !Ref VPCPeeringConnection
+        VpcPeeringConnectionId: !Ref PeerVPCConnection

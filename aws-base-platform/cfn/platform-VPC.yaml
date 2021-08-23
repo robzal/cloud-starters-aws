@@ -9,10 +9,6 @@
       Description: The CIDR Range of the VPC.
       Type: String
       Default: "10.0.0.0/16"
-    VPCCIDRBlockPrefix:
-      Description: The /16 prefix of the VPC CIDR Block.
-      Type: String
-      Default: "10.0"
     CreateNATGW:
       Description: Create or remove NATGWs.
       Type: String
@@ -23,9 +19,13 @@
       Type: String
       Default: false
       AllowedValues: [true, false]
+    PeeringRoleName:
+      Description: Name of the Peering IAM Role.
+      Type: String
+      Default: "vpc-peeringrole"
     PeeringRoleTrustedAccountIds:
       Description: CSV list of trusted accounts to assume the Peering Role.
-      Type: String
+      Type: CommaDelimitedList
       Default: "967792619409,271005954527"
   Conditions:
     ShouldCreateNATGW:
@@ -58,7 +58,7 @@
         VpcId:
           Ref: "VPC"
         AvailabilityZone: !Sub '${AWS::Region}a'
-        CidrBlock: !Sub '${VPCCIDRBlockPrefix}.0.0/24'
+        CidrBlock: !Select [ 0, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 4 ]]
         MapPublicIpOnLaunch: "true"
         Tags:
           -
@@ -70,7 +70,7 @@
         VpcId:
           Ref: "VPC"
         AvailabilityZone: !Sub '${AWS::Region}b'
-        CidrBlock: !Sub '${VPCCIDRBlockPrefix}.1.0/24'
+        CidrBlock: !Select [ 1, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 4 ]]
         MapPublicIpOnLaunch: "true"
         Tags:
           -
@@ -129,7 +129,7 @@
         VpcId:
           Ref: "VPC"
         AvailabilityZone: !Sub '${AWS::Region}a'
-        CidrBlock: !Sub '${VPCCIDRBlockPrefix}.10.0/24'
+        CidrBlock: !Select [ 4, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 4 ]]
         Tags:
           -
             Key: "Name"
@@ -140,7 +140,7 @@
         VpcId:
           Ref: "VPC"
         AvailabilityZone: !Sub '${AWS::Region}b'
-        CidrBlock: !Sub '${VPCCIDRBlockPrefix}.11.0/24'
+        CidrBlock: !Select [ 5, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 4 ]]
         Tags:
           -
             Key: "Name"
@@ -267,10 +267,11 @@
       Type: 'AWS::IAM::Role'
       Condition: ShouldCreatePeeringRole
       Properties:
+        RoleName: !Ref PeeringRoleName
         AssumeRolePolicyDocument:
           Statement:
             - Principal:
-               AWS: !Split [',', !Ref PeeringRoleTrustedAccountIds]
+               AWS: !Ref PeeringRoleTrustedAccountIds
               Action:
                 - 'sts:AssumeRole'
               Effect: Allow

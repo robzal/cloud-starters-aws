@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Creates test S3 bucket
+Description: Creates a simple test resource for demo pipelines
 Parameters:
   AppCode:
       Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
@@ -8,7 +8,7 @@ Parameters:
   Environment:
       Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: myenv
+      Default: demo
 Resources:
   TestLogGroup:
     Type: 'AWS::Logs::LogGroup'

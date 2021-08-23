@@ -16,8 +16,8 @@ Parameters:
     Default: 'subnet-d6f10a9e,subnet-513f4709,subnet-0e33fd68'
   CreateAPIKey:
     Type: 'String'
-    Default: 'True'
-    AllowedValues: ['True', 'False']
+    Default: 'true'
+    AllowedValues: ['true', 'false']
   TaskMemory:
     Description: Amount of memory assigned to lambda and container tasks
     Type: 'String'
@@ -33,12 +33,12 @@ Parameters:
     Default: '238160719262.dkr.ecr.ap-southeast-2.amazonaws.com'
   TaskImage:
     Type: 'String'
-    Default: 'demo-serverless-myenv-report-engine:latest'
+    Default: 'demo-serverless-demo-report-engine:latest'
 
 Conditions:
     DoAPIKEY: !Equals 
       - !Ref CreateAPIKey
-      - 'True'
+      - 'true'
 
 Globals:
   Function:

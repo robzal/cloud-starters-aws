@@ -227,7 +227,7 @@ Resources:
                       Configuration:
                         S3Bucket: !Ref PipelineEventsBucket
                         S3ObjectKey:  !Sub 'events/${AppCode}/${DevPipelineName}'
-                        PollForSourceChanges: 'True'
+                        PollForSourceChanges: 'true'
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
@@ -329,7 +329,7 @@ Resources:
                       Configuration:
                         S3Bucket: !Ref PipelineEventsBucket
                         S3ObjectKey:  !Sub 'events/${AppCode}/${TestPipelineName}'
-                        PollForSourceChanges: 'True'
+                        PollForSourceChanges: 'true'
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
@@ -440,7 +440,7 @@ Resources:
                       Configuration:
                         S3Bucket: !Ref PipelineEventsBucket
                         S3ObjectKey:  !Sub 'events/${AppCode}/${StagePipelineName}'
-                        PollForSourceChanges: 'True'
+                        PollForSourceChanges: 'true'
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
@@ -551,7 +551,7 @@ Resources:
                       Configuration:
                         S3Bucket: !Ref PipelineEventsBucket
                         S3ObjectKey:  !Sub 'events/${AppCode}/${ProdPipelineName}'
-                        PollForSourceChanges: 'True'
+                        PollForSourceChanges: 'true'
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1

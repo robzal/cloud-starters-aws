@@ -1,0 +1,3 @@
+AdminAccount=${ADMIN_ACCOUNT}
+EnforceMFA=${ENFORCE_MFA}
+IsNonProdAccount=${IS_NONPROD_ACCOUNT}

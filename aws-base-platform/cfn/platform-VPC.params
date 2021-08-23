@@ -1,2 +1,6 @@
-Environment=${ENVIRONMENT}
-AppCode=${APP_CODE}
+VPCName=${VPC_NAME}
+VPCCIDRBlock=${VPC_CIDR}
+CreateNATGW=${CREATE_NATGW}
+CreatePeeringRole=${CREATE_VPC_PEERING_ROLE}
+PeeringRoleName=${VPC_PEERING_ROLE_NAME}
+PeeringRoleTrustedAccountIds=${VPC_PEERING_TRUSTED_ACCOUNTS}

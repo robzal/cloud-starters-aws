@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Create DNS Domain and Matching Wildcard SSL certificate
+Parameters:
+  CreateR53Zone:
+    Description: Create or remove R53 Zone.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  CreateSSLCert:
+    Description: Create or remove SSL Certificate.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  DNSDomainName:
+    Description: DNS Domain for Route 53 
+    Type: String 
+  SSLDomainName:
+    Description: DNS Domain for SSL Cert in ACM
+    Type: String 
+  VPCID:
+    Description: VPCID if making the Route 53 Zone a Private Zone
+    Type: String 
+    Default: ""
+Conditions:
+  ShouldCreateR53Zone: !Equals
+    - 'true'
+    - !Ref CreateR53Zone 
+  ShouldCreateSSLCert: !And
+    - !Equals [ 'true', !Ref CreateSSLCert ]
+    - !Condition ShouldCreateR53Zone
+  PublicZone: !Equals 
+    - !Ref VPCID
+    - ""
+
+Resources:
+  R53Domain: 
+    Type: "AWS::Route53::HostedZone"
+    Condition: ShouldCreateR53Zone
+    Properties: 
+      Name: !Ref DNSDomainName
+      VPCs: 
+        !If
+        - PublicZone
+        - !Ref "AWS::NoValue"        
+        - 
+          VPCId: !Ref VPCID
+          VPCRegion: !Sub '${AWS::Region}'
+
+  SSLCertificate: 
+    Type: AWS::CertificateManager::Certificate 
+    Condition: ShouldCreateSSLCert
+    Properties: 
+      DomainName: !Ref SSLDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref SSLDomainName
+          HostedZoneId: !Ref R53Domain

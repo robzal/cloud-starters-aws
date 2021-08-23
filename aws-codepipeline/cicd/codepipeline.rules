@@ -6,7 +6,7 @@
                 {
                     "app_code": "demo-pipeline",
                     "pipeline_name": "demo-pipeline-dev-pipeline",
-                    "repository_name": "codepipeline-flexi",
+                    "repository_name": "pipeline-test",
                     "branch_name": "develop",
                     "stack_name": "dev",
                     "environment": "dev",
@@ -15,7 +15,7 @@
                 {
                     "app_code": "demo-pipeline",
                     "pipeline_name": "demo-pipeline-test-pipeline",
-                    "repository_name": "codepipeline-flexi",
+                    "repository_name": "pipeline-test",
                     "branch_name": "develop",
                     "stack_name": "test",
                     "environment": "test",
@@ -29,7 +29,7 @@
                 {
                     "app_code": "demo-pipeline",
                     "pipeline_name": "demo-pipeline-stage-pipeline",
-                    "repository_name": "codepipeline-flexi",
+                    "repository_name": "pipeline-test",
                     "branch_name": "master",
                     "stack_name": "stage",
                     "environment": "stage",
@@ -38,7 +38,7 @@
                 {
                     "app_code": "demo-pipeline",
                     "pipeline_name": "demo-pipeline-prod-pipeline",
-                    "repository_name": "codepipeline-flexi",
+                    "repository_name": "pipeline-test",
                     "branch_name": "master",
                     "stack_name": "prod",
                     "environment": "prod",

@@ -9,7 +9,7 @@ Parameters:
   Environment:
     Description: Envornment Code for the Application being deployed, to be used in resource and stack names
     Type: String
-    Default: myenv
+    Default: demo
   BuildAccount:
     Description: AccountID where the Pipeline resides which will assume this role
     Type: Number 

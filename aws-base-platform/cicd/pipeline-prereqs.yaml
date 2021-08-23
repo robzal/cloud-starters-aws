@@ -8,14 +8,14 @@ Parameters:
   CreateRulesPipelinesPrereqs:
     Description: Whether or not to deploy flexi pipeline buckets / cloudtrail
     Type: String 
-    Default: "True"
+    Default: "true"
     AllowedValues:
-      - 'True'
-      - 'False'
+      - 'true'
+      - 'false'
 Conditions:
   ShouldCreateRulesPipelinesPrereqs: !Equals 
     - !Ref CreateRulesPipelinesPrereqs
-    - "True"
+    - "true"
 Resources:
   PipelineKMSKey:
     Type: AWS::KMS::Key

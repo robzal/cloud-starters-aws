@@ -2,32 +2,42 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   Setup Basic Auditing and Security Services
 Parameters:
-  EnableGuardDuty:
-    Description: Bool value if current account is Production level
+  EnableConfig:
+    Description: Bool value whether to create and enable awsconfig resources (these incur some costs)
     Type: String 
-    Default: "False"
+    Default: 'false'
     AllowedValues:
-      - 'True'
-      - 'False'
+      - 'true'
+      - 'false'
+  EnableGuardDuty:
+    Description: Bool value whether to create and enable guard duty resources (these incur some costs)
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
   GuardDutyEmailSubsubscriptions:
     Description: email address to send GuardDuty finding notifications to you
     Type: String 
     Default: guardduty@example.com
 Conditions:
+  ShouldEnableConfig: !Equals 
+    - !Ref EnableConfig
+    - 'true'
   ShouldEnableGuardDuty: !Equals 
     - !Ref EnableGuardDuty
-    - "False"
+    - 'true'
 Resources:
   # Enable CloudTrail
   CloudTrailRoot:
     Type: AWS::CloudTrail::Trail
     DependsOn: [CloudTrailIamRole]
     Properties: 
-      EnableLogFileValidation: True
+      EnableLogFileValidation: true
       EventSelectors: [{DataResources: [], IncludeManagementEvents: true, ReadWriteType: All}]
-      IncludeGlobalServiceEvents: True
-      IsLogging: True
-      IsMultiRegionTrail: True
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
       S3BucketName: !Sub '${AWS::AccountId}-cloudtrail'
       CloudWatchLogsLogGroupArn: !GetAtt [CloudTrailLogGroup, Arn] 
       CloudWatchLogsRoleArn: !GetAtt [CloudTrailIamRole, Arn]
@@ -61,6 +71,7 @@ Resources:
   # Enable AWS Config
   ConfigRecorder:
     Type: 'AWS::Config::ConfigurationRecorder'
+    Condition: ShouldEnableConfig
     DependsOn: [ConfigIamRole]
     Properties:
       RoleARN:  !GetAtt [ConfigIamRole, Arn]
@@ -69,6 +80,7 @@ Resources:
         IncludeGlobalResourceTypes: true
   ConfigDeliveryChannel:
     Type: 'AWS::Config::DeliveryChannel'
+    Condition: ShouldEnableConfig
     Properties:
       S3BucketName: !Sub '${AWS::AccountId}-awsconfig'
       ConfigSnapshotDeliveryProperties: 
@@ -107,6 +119,7 @@ Resources:
                   -  !Sub "arn:aws:s3:::${AWS::AccountId}-awsconfig"
   ConfigRuleEC2Public:
     Type: 'AWS::Config::ConfigRule'
+    Condition: ShouldEnableConfig
     DependsOn: [ConfigRecorder]
     Properties:
       ConfigRuleName: ec2-instance-no-public-ip
@@ -123,6 +136,7 @@ Resources:
         SourceIdentifier: EC2_INSTANCE_NO_PUBLIC_IP
   ConfigRuleCustomExample:
     Type: AWS::Config::ConfigRule
+    Condition: ShouldEnableConfig
     DependsOn: [ConfigCustomLambdaPermission, ConfigRecorder]
     Properties:
       ConfigRuleName: ConfigRuleCustomExample
@@ -205,7 +219,7 @@ Resources:
   GuardDuty:
     Type: 'AWS::GuardDuty::Detector'
     Properties:
-      Enable: !If [ShouldEnableGuardDuty, 'True', 'False']
+      Enable: !If [ShouldEnableGuardDuty, 'true', 'false']
   GuardDutyEventRule:
     Type: 'AWS::Events::Rule'
     Properties:

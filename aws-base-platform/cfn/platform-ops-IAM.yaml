@@ -1,59 +1,42 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Cross Account IAM Roles and Groups to manage Single Identity Cross Account IAM Access
+  Creates IAM Roles for team members to assume with varying levels of access, and IAM Groups to manage the assume role rights if deploying this atack into the Admin Account itself
 Parameters:
-  OrgCode:
-    Description: ShortCode to prefix IAM Roles and Policies
-    Type: String 
-    Default: "MyOrg"
-  IdentityAccount:
+  AdminAccount:
     Description: Account ID for AWS Account with IAM Users
     Type: String 
     Default: "238160719262"
   EnforceMFA:
     Description: Requires Accounts assuming roles to have MFA enabled
     Type: String 
-    Default: "True"
+    Default: "true"
     AllowedValues:
-      - 'True'
-      - 'False'
-  IsProdOnlyAccount:
+      - 'true'
+      - 'false'
+  IsNonProdAccount:
     Description: Bool value if current account is Production level
     Type: String 
-    Default: "False"
+    Default: "false"
     AllowedValues:
-      - 'True'
-      - 'False'
-  MultiAccountAssume:
-    Description: Grant Role Assume rights for its Group across all accounts
-    Type: String 
-    Default: "False"
-    AllowedValues:
-      - 'True'
-      - 'False'
+      - 'true'
+      - 'false'
 
 Conditions:
   ShouldEnforceMFA: !Equals 
     - !Ref EnforceMFA
-    - "True"
-  IsProdOnly: !Equals 
-    - !Ref IsProdOnlyAccount
-    - "True"
-  IsNotProdOnly: !Equals 
-    - !Ref IsProdOnlyAccount
-    - "False"
-  IsIdentity: !Equals 
-    - !Ref IdentityAccount
+    - "true"
+  IsNonProd: !Equals 
+    - !Ref IsNonProdAccount
+    - "true"
+  IsAdmin: !Equals 
+    - !Ref AdminAccount
     - !Sub '${AWS::AccountId}'
-  AllowMultiAccountAssume: !Equals 
-    - !Ref MultiAccountAssume
-    - "True"
 
 Resources:
   AdminsRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${OrgCode}Admins'
+      RoleName: !Sub 'PlatformAdmins'
       ManagedPolicyArns: 
         - !Ref AdminsPolicy
       AssumeRolePolicyDocument:
@@ -62,7 +45,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
@@ -70,7 +53,7 @@ Resources:
   PowerUsersRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${OrgCode}PowerUsers'
+      RoleName: !Sub 'PlatformPowerUsers'
       ManagedPolicyArns: 
         - !Ref PowerUsersPolicy
       AssumeRolePolicyDocument:
@@ -79,33 +62,16 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
-            Action: 'sts:AssumeRole'
-            Condition:
-              BoolIfExists: 
-                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
-  PowerUsersNoDataRole:
-    Type: 'AWS::IAM::Role'
-    Properties:
-      RoleName: !Sub '${OrgCode}PowerUsersNoData'
-      ManagedPolicyArns: 
-        - !Ref PowerUsersNoDataPolicy
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
                 aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
   PowerUsersNonProdRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties:
-      RoleName: !Sub '${OrgCode}PowerUsersNonProd'
+      RoleName: !Sub 'PlatformPowerUsersNonProd'
       ManagedPolicyArns: 
         - !Ref PowerUsersNonProdPolicy
       AssumeRolePolicyDocument:
@@ -114,7 +80,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
@@ -122,7 +88,7 @@ Resources:
   ReadOnlyRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${OrgCode}ReadOnly'
+      RoleName: !Sub 'PlatformReadOnly'
       ManagedPolicyArns: 
         - !Ref ReadOnlyPolicy
       AssumeRolePolicyDocument:
@@ -131,33 +97,16 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
-            Action: 'sts:AssumeRole'
-            Condition:
-              BoolIfExists: 
-                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
-  ReadOnlyNoDataRole:
-    Type: 'AWS::IAM::Role'
-    Properties:
-      RoleName: !Sub '${OrgCode}ReadOnlyNoData'
-      ManagedPolicyArns: 
-        - !Ref ReadOnlyNoDataPolicy
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
                 aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
   ReadOnlyNonProdRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties:
-      RoleName: !Sub '${OrgCode}ReadOnlyNonProd'
+      RoleName: !Sub 'PlatformReadOnlyNonProd'
       ManagedPolicyArns: 
         - !Ref ReadOnlyNonProdPolicy
       AssumeRolePolicyDocument:
@@ -166,7 +115,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
@@ -174,7 +123,7 @@ Resources:
   BillingRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${OrgCode}Billing'
+      RoleName: !Sub 'PlatformBilling'
       ManagedPolicyArns: 
         - !Ref BillingPolicy
       AssumeRolePolicyDocument:
@@ -183,7 +132,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
@@ -191,7 +140,7 @@ Resources:
   DevOpsRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${OrgCode}DevOps'
+      RoleName: !Sub 'PlatformDevOps'
       ManagedPolicyArns: 
         - !Ref DevOpsPolicy
       AssumeRolePolicyDocument:
@@ -200,33 +149,16 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
-            Action: 'sts:AssumeRole'
-            Condition:
-              BoolIfExists: 
-                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
-  DevOpsApproverRole:
-    Type: 'AWS::IAM::Role'
-    Properties:
-      RoleName: !Sub '${OrgCode}DevOpsApprover'
-      ManagedPolicyArns: 
-        - !Ref DevOpsApproverPolicy
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
                 aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
   DevOpsNonProdRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties:
-      RoleName: !Sub '${OrgCode}DevOpsNonProd'
+      RoleName: !Sub 'PlatformDevOpsNonProd'
       ManagedPolicyArns: 
         - !Ref DevOpsNonProdPolicy
       AssumeRolePolicyDocument:
@@ -235,7 +167,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccount}:root
+                - !Sub arn:aws:iam::${AdminAccount}:root
             Action: 'sts:AssumeRole'
             Condition:
               BoolIfExists: 
@@ -253,7 +185,7 @@ Resources:
             Action:
               - '*'
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}Admins'
+      ManagedPolicyName: !Sub 'PlatformAdmins'
   PowerUsersPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties: 
@@ -286,45 +218,10 @@ Resources:
               - organizations:DescribeOrganization
               - account:ListRegions
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}PowerUsers'
-  PowerUsersNoDataPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties: 
-      Description: "PowerUser Access to General Resources except Prod Data and Read Only Access to some Platform Resources"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            NotAction:
-              - s3:*
-              - dynamodb:*
-              - rds:*
-              - iam:*
-              - organizations:*
-              - account:*
-              - kms:*
-              - aws-portal:*
-              - budgets:*
-              - ce:*
-              - cur:*
-              - purchase-orders:*
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              # TODO IAM Role and Role Create / Edit Policy / Data List
-              - kms:List*
-              - kms:Describe*
-              - iam:List*
-              - iam:Describe*
-              - iam:*LinkedRole
-              - organizations:DescribeOrganization
-              - account:ListRegions
-            Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}PowerUsersNoData'
+      ManagedPolicyName: !Sub 'PlatformPowerUsers'
   PowerUsersNonProdPolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties: 
       Description: "PowerUser Access to General Non Prod Resources and Read Only Access to some Platform Resources"
       Path: "/"
@@ -356,7 +253,7 @@ Resources:
               - account:ListRegions
             # TODO NON PROD ONLY
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}PowerUsersNonProd'
+      ManagedPolicyName: !Sub 'PlatformPowerUsersNonProd'
   ReadOnlyPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties: 
@@ -377,31 +274,10 @@ Resources:
             Action:
               - iam:ListRoles
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}ReadOnly'
-  ReadOnlyNoDataPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties: 
-      Description: Read Only Access to General Resources except Prod Data and Read Only Access to some Platform Resources"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            NotAction:
-              - iam:*
-              - organizations:*
-              - account:*
-              - cloudformation:*
-              - kms:*
-            Resource: '*'
-          - Effect: Allow
-            Action:
-              - iam:ListRoles
-            Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}ReadOnlyNoData'
+      ManagedPolicyName: !Sub 'PlatformReadOnly'
   ReadOnlyNonProdPolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties: 
       Description: Read Only Access to General Non Prod Resources and Read Only Access to some Platform Resources"
       Path: "/"
@@ -420,7 +296,7 @@ Resources:
             Action:
               - iam:ListRoles
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}ReadOnlyNonProd'
+      ManagedPolicyName: !Sub 'PlatformReadOnlyNonProd'
   BillingPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties: 
@@ -449,7 +325,7 @@ Resources:
               - cur:DeleteReportDefinition
               - purchase-orders:*PurchaseOrders
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}Billing'
+      ManagedPolicyName: !Sub 'PlatformBilling'
   DevOpsPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties: 
@@ -472,31 +348,10 @@ Resources:
               - logs:StopQuery
               - logs:FilterLogEvents
             Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}DevOps'
-  DevOpsApproverPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties: 
-      Description: "Approver Access to CodePipeline. Usually combined with Full ReadOnly Policy"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - codepipeline:Put*Result
-              - codepipeline:Get*
-              - codepipeline:List*
-              - logs:List*
-              - logs:Get*
-              - logs:Describe*
-              - logs:StartQuery
-              - logs:StopQuery
-              - logs:FilterLogEvents
-            Resource: '*'
-      ManagedPolicyName: !Sub '${OrgCode}DevOpsApprover'
+      ManagedPolicyName: !Sub 'PlatformDevOps'
   DevOpsNonProdPolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsNotProdOnly
+    Condition: IsNonProd
     Properties: 
       Description: "Full Access to Non Prod DevOps Resources (Code*, Cloudformation). Usually combined with Full ReadOnly Policy"
       Path: "/"
@@ -518,11 +373,11 @@ Resources:
               - logs:FilterLogEvents
             Resource: '*'
             # TODO Non Prod Condition
-      ManagedPolicyName: !Sub '${OrgCode}DevOpsNonProd'
+      ManagedPolicyName: !Sub 'PlatformDevOpsNonProd'
 
   AdminsAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "Full Platform Admin Role Assume Policy for Group"
       Path: "/"
@@ -533,11 +388,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}Admins', !Sub '${AdminsRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeAdmins'
+              - !Sub 'arn:aws:iam::*:role/PlatformAdmins'
+      ManagedPolicyName: !Sub 'PlatformAssumeAdmins'
   PowerUsersAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "PowerUsers Role Assume Policy for Group"
       Path: "/"
@@ -548,26 +403,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}PowerUsers', !Sub '${PowerUsersRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumePowerUsers'
-  PowerUsersNoDataAssumePolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
-    Properties: 
-      Description: "PowerUsersNoData Role Assume Policy for Group"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - 'sts:AssumeRole'
-            Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}PowerUsersNoData', !Sub '${PowerUsersNoDataRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumePowerUsersNoData'
+              - !Sub 'arn:aws:iam::*:role/PlatformPowerUsers'
+      ManagedPolicyName: !Sub 'PlatformAssumePowerUsers'
   PowerUsersNonProdAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "PowerUsersNonProd Role Assume Policy for Group"
       Path: "/"
@@ -578,11 +418,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}PowerUsersNonProd', !Sub '${PowerUsersNonProdRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumePowerUsersNonProd'
+              - !Sub 'arn:aws:iam::*:role/PlatformPowerUsersNonProd'
+      ManagedPolicyName: !Sub 'PlatformAssumePowerUsersNonProd'
   ReadOnlyAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "ReadOnly Role Assume Policy for Group"
       Path: "/"
@@ -593,26 +433,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}ReadOnly', !Sub '${ReadOnlyRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeReadOnly'
-  ReadOnlyNoDataAssumePolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
-    Properties: 
-      Description: "ReadOnlyNoData Role Assume Policy for Group"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - 'sts:AssumeRole'
-            Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}ReadOnlyNoData', !Sub '${ReadOnlyNoDataRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeReadOnlyNoData'
+              - !Sub 'arn:aws:iam::*:role/PlatformReadOnly'
+      ManagedPolicyName: !Sub 'PlatformAssumeReadOnly'
   ReadOnlyNonProdAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "ReadOnlyNonProd Role Assume Policy for Group"
       Path: "/"
@@ -623,11 +448,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}ReadOnlyNonProd', !Sub '${ReadOnlyNonProdRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeReadOnlyNonProd'
+              - !Sub 'arn:aws:iam::*:role/PlatformReadOnlyNonProd'
+      ManagedPolicyName: !Sub 'PlatformAssumeReadOnlyNonProd'
   BillingAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "Billing Role Assume Policy for Group"
       Path: "/"
@@ -638,11 +463,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}Billing', !Sub '${BillingRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeBilling'
+              - !Sub 'arn:aws:iam::*:role/PlatformBilling'
+      ManagedPolicyName: !Sub 'PlatformAssumeBilling'
   DevOpsAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "DevOps Role Assume Policy for Group"
       Path: "/"
@@ -653,26 +478,11 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}DevOps', !Sub '${DevOpsRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeDevOps'
-  DevOpsApproverAssumePolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
-    Properties: 
-      Description: "DevOpsApprover Role Assume Policy for Group"
-      Path: "/"
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - 'sts:AssumeRole'
-            Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}DevOpsApprover', !Sub '${DevOpsApproverRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeDevOpsApprover'
+              - !Sub 'arn:aws:iam::*:role/PlatformDevOps'
+      ManagedPolicyName: !Sub 'PlatformAssumeDevOps'
   DevOpsNonProdAssumePolicy:
     Type: AWS::IAM::ManagedPolicy
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
       Description: "DevOpsNonProd Role Assume Policy for Group"
       Path: "/"
@@ -683,94 +493,70 @@ Resources:
             Action:
               - 'sts:AssumeRole'
             Resource: 
-              - !If [AllowMultiAccountAssume, !Sub 'arn:aws:iam::*:role/${OrgCode}DevOpsNonProd', !Sub '${DevOpsNonProdRole.Arn}']
-      ManagedPolicyName: !Sub '${OrgCode}AssumeDevOpsNonProd'
+              - !Sub 'arn:aws:iam::*:role/PlatformDevOpsNonProd'
+      ManagedPolicyName: !Sub 'PlatformAssumeDevOpsNonProd'
 
   AdminsGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}AdminsGroup'
+      GroupName: !Sub 'PlatformAdminsGroup'
       ManagedPolicyArns: 
         - !Ref AdminsAssumePolicy
       Path: /
   PowerUsersGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}PowerUsersGroup'
+      GroupName: !Sub 'PlatformPowerUsersGroup'
       ManagedPolicyArns: 
         - !Ref PowerUsersAssumePolicy
       Path: /
-  PowerUsersNoDataGroup:
-    Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
-    Properties: 
-      GroupName: !Sub '${OrgCode}PowerUsersNoDataGroup'
-      ManagedPolicyArns: 
-        - !Ref PowerUsersNoDataAssumePolicy
-      Path: /
   PowerUsersNonProdGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}PowerUsersNonProdGroup'
+      GroupName: !Sub 'PlatformPowerUsersNonProdGroup'
       ManagedPolicyArns: 
         - !Ref PowerUsersNonProdAssumePolicy
       Path: /
   ReadOnlyGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}ReadOnlyGroup'
+      GroupName: !Sub 'PlatformReadOnlyGroup'
       ManagedPolicyArns: 
         - !Ref ReadOnlyAssumePolicy
       Path: /
-  ReadOnlyNoDataGroup:
-    Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
-    Properties: 
-      GroupName: !Sub '${OrgCode}ReadOnlyNoDataGroup'
-      ManagedPolicyArns: 
-        - !Ref ReadOnlyNoDataAssumePolicy
-      Path: /
   ReadOnlyNonProdGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}ReadOnlyNonProdGroup'
+      GroupName: !Sub 'PlatformReadOnlyNonProdGroup'
       ManagedPolicyArns: 
         - !Ref ReadOnlyNonProdAssumePolicy
       Path: /
   BillingGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}BillingGroup'
+      GroupName: !Sub 'PlatformBillingGroup'
       ManagedPolicyArns: 
         - !Ref BillingAssumePolicy
       Path: /
   DevOpsGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}DevOpsGroup'
+      GroupName: !Sub 'PlatformDevOpsGroup'
       ManagedPolicyArns: 
         - !Ref DevOpsAssumePolicy
       Path: /
-  DevOpsApproverGroup:
-    Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
-    Properties: 
-      GroupName: !Sub '${OrgCode}DevOpsApproverGroup'
-      ManagedPolicyArns: 
-        - !Ref DevOpsApproverAssumePolicy
-      Path: /
   DevOpsNonProdGroup:
     Type: 'AWS::IAM::Group'
-    Condition: IsIdentity
+    Condition: IsAdmin
     Properties: 
-      GroupName: !Sub '${OrgCode}DevOpsNonProdGroup'
+      GroupName: !Sub 'PlatformDevOpsNonProdGroup'
       ManagedPolicyArns: 
         - !Ref DevOpsNonProdAssumePolicy
       Path: /

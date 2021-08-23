@@ -4,14 +4,14 @@ Parameters:
   CreateCustomerKMSKey:
     Description: Use a CMK KMS Key for Cloudformation bucket (for cross account access)
     Type: String
-    Default: "False"
+    Default: "false"
     AllowedValues:
-      - 'True'
-      - 'False'
+      - 'true'
+      - 'false'
 Conditions:
   UseCMKKMS: !Equals 
     - !Ref CreateCustomerKMSKey
-    - "True"
+    - "true"
 
 Resources:
   BucketKMSKey:
