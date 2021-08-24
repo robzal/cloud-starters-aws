@@ -27,6 +27,10 @@
       Description: CSV list of trusted accounts to assume the Peering Role.
       Type: CommaDelimitedList
       Default: "967792619409,271005954527"
+    AdminIPAddress:
+      Description: Single Public IP Address to allow full access to the Admin Sec Group for Admin / Testing Purposes.
+      Type: String
+      Default: "1.2.3.4/32"
   Conditions:
     ShouldCreateNATGW:
       !Equals [true, !Ref CreateNATGW]
@@ -122,6 +126,20 @@
           Ref: "PublicSubnetAZ2"
         RouteTableId:
           Ref: "PublicRouteTable"
+    AdminSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+        GroupName: !Sub '${VPCName}-AdminSG'
+        GroupDescription: Enable admin and local VPC access to the NAT device
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+          - IpProtocol: '-1'
+            CidrIp: !Ref VPCCIDRBlock
+          - IpProtocol: '-1'
+            CidrIp: !Ref AdminIPAddress
+        SecurityGroupEgress:
+          - IpProtocol: '-1'
+            CidrIp: 0.0.0.0/0
 
     PrivateSubnetAZ1:
       Type: "AWS::EC2::Subnet"

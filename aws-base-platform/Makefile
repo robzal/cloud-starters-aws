@@ -56,8 +56,8 @@ pipeline-role:
 pipeline:
 	$(call deployaws,${BUILD_PROFILE},cicd,${CHANGESET_OPTION},cicd/pipeline.yaml,cicd/pipeline.params,${APP_CODE}-pipeline)
 
-.PHONY: admin tools shared dev prod
-admin tools shared dev prod:
+.PHONY: admin build shared dev prod
+admin build shared dev prod:
 	@echo if the final $${CLOUDFORMATION_BUCKET} bucket doesnt exist, temporarily change it to an existing bucket before creating the proper CLOUDFORMATION_BUCKET
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-buckets.yaml,cfn/platform-buckets.params,${APP_CODE}-buckets)
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-cicd-core.yaml,cfn/platform-cicd-core.params,${APP_CODE}-cicd-core)
