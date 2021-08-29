@@ -67,3 +67,9 @@ admin build shared dev prod:
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-vpc.yaml,cfn/platform-vpc.params,${APP_CODE}-${ENVIRONMENT}-vpc)
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-vpc-peering.yaml,cfn/platform-vpc-peering.params,${APP_CODE}-${ENVIRONMENT}-vpc-peering)
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-r53-ssl.yaml,cfn/platform-r53-ssl.params,${APP_CODE}-${ENVIRONMENT}-dns-ssl)
+
+.PHONY: deploy deployvpn
+deploy: admin build shared dev prod
+
+deployvpn:
+	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/platform-VPN-endpoint.yaml,cfn/platform-VPN-endpoint.params,${APP_CODE}-vpn-endpoint)
