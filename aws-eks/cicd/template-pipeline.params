@@ -1,0 +1,14 @@
+Environment=${ENVIRONMENT}
+AppCode=${APP_CODE}
+PipelineBucket=${PIPELINE_BUCKET}
+PipelineBucketKMSKeyARN=${PIPELINE_KMS_KEY_ARN}
+CloudformationBucket=${CLOUDFORMATION_BUCKET}
+BuildBucket=${BUILD_BUCKET}
+CodeBuildImage=${CODE_BUILD_IMAGE}
+CodeBuildCompute=${CODE_BUILD_COMPUTE}
+CodeCommitRepo=${CODE_COMMIT_REPO}
+CodeCommitBranch=${CODE_COMMIT_BRANCH}
+DeploymentRoleARN=${DEPLOYMENT_ROLE_ARN}
+VPCID=${BUILD_VPC_ID}
+VPCSubnetIDs=${BUILD_VPC_SUBNET_IDS}
+VPCSecGroupID=${BUILD_VPC_SECGROUP_ID}

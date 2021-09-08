@@ -37,6 +37,18 @@ pipeline:
 pipeline-multienv:
 	$(call deployaws,${BUILD_PROFILE},cicd,${CHANGESET_OPTION},cicd/pipeline-multienv.yaml,cicd/pipeline-multienv.params,${APP_CODE}-pipeline)
 pipeline-rulesengine:
+
+	# Copy the lambdas into the S3 deployments bucket for this CFN template to reference
+	# Then copy the rules file and folders into the events bucket
+	# Then build and deploy the pipeline
+	aws s3 cp ./packages/${LAMBDA_FILE_COMMIT_EVENT} s3://${DEPLOYMENT_BUCKET}/${APP_CODE}/ --profile ${BUILD_PROFILE}
+	aws s3 cp ./packages/${LAMBDA_FILE_COMMIT_FETCH} s3://${DEPLOYMENT_BUCKET}/${APP_CODE}/ --profile ${BUILD_PROFILE}
+	aws s3 cp ./packages/${LAMBDA_FILE_NEXT_EXECUTION} s3://${DEPLOYMENT_BUCKET}/${APP_CODE}/ --profile ${BUILD_PROFILE}
+	aws s3api put-object --bucket ${PIPELINE_EVENTS_BUCKET} --key rules/ --profile ${BUILD_PROFILE}
+	aws s3api put-object --bucket ${PIPELINE_EVENTS_BUCKET} --key events/ --profile ${BUILD_PROFILE}
+	aws s3api put-object --bucket ${PIPELINE_EVENTS_BUCKET} --key events/${APP_CODE}/ --profile ${BUILD_PROFILE}
+	aws s3 cp ./cicd/codepipeline.rules s3://${PIPELINE_EVENTS_BUCKET}/rules/${CODE_COMMIT_REPONAME}.rules --profile ${BUILD_PROFILE}
+
 	$(call deployaws,${BUILD_PROFILE},cicd,${CHANGESET_OPTION},cicd/pipeline-rulesengine.yaml,cicd/pipeline-rulesengine.params,${APP_CODE}-rulesengine-pipeline)
 
 .PHONY: deploy
@@ -45,10 +57,10 @@ deploy:
 
 PIPELINE_LAMBDAS=$(shell find .aws-sam/build/* -type d -maxdepth 0)
 
-.PHONY: buildlambdas
-buildlambdas: 
+.PHONY: buildlambdas-sam buildlambdas
+buildlambdas-sam: 
 	sam build \
-		--template-file ./build/pipeline-lambdas.yaml \
+		--template-file ./src/pipeline-lambdas.yaml \
 		--region ${AWS_REGION} \
 		--profile ${BUILD_PROFILE} \
 		${SAM_DEBUG_OPTION}
@@ -57,3 +69,6 @@ buildlambdas:
 		echo $$dir; \
 		cd "$$dir" && zip -r ../../../build/pipeline-lambdas/"$$(basename $$dir)"_${LAMBDA_VERSION}.zip * && cd - ; \
 	done
+
+buildlambdas:
+	./scripts/package-lambdas

@@ -1,0 +1,17 @@
+    - groups:
+      - system:bootstrappers
+      - system:nodes
+      rolearn: arn:aws:iam::${DEPLOYMENT_ACCOUNT}:role/${APP_CODE}-${ENVIRONMENT}-Instance-Role
+      username: system:node:{{EC2PrivateDNSName}}
+    - groups:
+      - system:masters
+      rolearn: ${KUBE_ADMIN_ROLE}
+      username: platformadmins
+    - groups:
+      - system:masters
+      rolearn: ${KUBE_POWERUSER_ROLE}
+      username: powerusers
+    - groups:
+      - system:masters
+      rolearn: ${KUBE_READONLY_ROLE}
+      username: readonly

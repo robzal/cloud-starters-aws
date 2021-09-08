@@ -1,3 +1,4 @@
+AWSTemplateFormatVersion: '2010-09-09'
 Description: >
     Deploy an ECS service on either AWS Fargate, EC2 or Windows, hosted in a private subnet, but optionally accessible via a public load balancer
 

@@ -1,3 +1,4 @@
+AWSTemplateFormatVersion: '2010-09-09'
 Description: >
     This Template Creates ECS Clusters for Linux and Windows Containers.
 Parameters: 

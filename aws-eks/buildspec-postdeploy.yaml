@@ -1,0 +1,57 @@
+version: 0.2
+phases:
+  build:
+    commands:
+    - aws --version
+    # read in the ENV for this environment to use here
+    # get rid of this env var because were using Codebuilds
+    - sed -i '/^export AWS_PROFILE/d' ./config/.env.$ENVIRONMENT
+    - chmod 777 ./config/.env.$ENVIRONMENT
+    - echo reading in ./config/.env.$ENVIRONMENT
+    - . ./config/.env.$ENVIRONMENT
+
+    - echo Configuring AWS CLI
+    - aws configure set aws_access_key_id "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .AccessKeyId)"
+    - aws configure set aws_secret_access_key "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .SecretAccessKey)"
+    - aws configure set aws_session_token "$(curl 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI | jq -r .Token)"
+    - aws configure set profile.deployrole.region $AWS_REGION
+    - aws configure set profile.deployrole.source_profile default
+    - aws configure set profile.deployrole.role_arn $DEPLOYMENT_ROLE_ARN
+
+    - curl -LO $KUBECTL_URL
+    - chmod +x ./kubectl
+    - export PATH=$PWD/:$PATH
+
+    # requires either VPC peering to target account for private endpoints, or whitelist public endpoint
+    - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION --profile deployrole
+    - kubectl get nodes -o wide
+    - kubectl get cm -n kube-system aws-auth -o yaml > aws-auth.yaml
+    - kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=master" || true
+
+    # apply rolebindings - add roles to current, read in vars and apply
+    - grep -i -B 10000  'mapRoles:' aws-auth.yaml > aws-auth-new.yaml
+    - cat ./k8s/configmap-patch.yaml >> aws-auth-new.yaml
+    - grep -i -A 10000  'mapRoles:' aws-auth.yaml | tail -n +2 >> aws-auth-new.yaml
+    - envsubst < aws-auth-new.yaml > aws-auth.yaml
+    - cat aws-auth.yaml
+
+    # apply modified configmap
+    - kubectl apply -f aws-auth.yaml
+    ## Using auth reconcile rather than apply is best practice for K8S Roles and Role bindings.
+    - kubectl apply -f ./k8s/cluster-roles-rolebindings.yaml
+
+    - |
+      aws eks update-cluster-config \
+      --region $AWS_REGION \
+      --name $EKS_CLUSTER_NAME \
+      --resources-vpc-config endpointPublicAccess=true,publicAccessCidrs="$PUBLIC_CLUSTER_ALLOWED_IPS",endpointPrivateAccess=true \
+      --profile deployrole > /dev/null 2>&1; exit 0
+
+    - sleep 180
+
+    - |
+      aws eks update-cluster-config \
+      --region $AWS_REGION \
+      --name $EKS_CLUSTER_NAME \
+      --logging '{"clusterLogging":[{"types":["api","audit","authenticator","controllerManager","scheduler"],"enabled":true}]}' \
+      --profile deployrole > /dev/null 2>&1; exit 0

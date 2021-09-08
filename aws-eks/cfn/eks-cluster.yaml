@@ -1,0 +1,504 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+   This Template Creates an EKS Cluster including a Linux and Windows Nodegroup and an AWS Load Balancer Controller.
+Parameters:
+  Environment:
+      Type: String
+      Default: demo
+      Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+  AppCode:
+      Type: String
+      Default: demo-eks
+      Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+  EKSClusterName:
+    Type: String
+    Default: demo-eks-demo-Cluster
+    Description: The desired name of your AWS EKS Cluster.
+  EKSClusterVersion:
+    Type: String
+    Default: 1.21
+    AllowedValues: 
+      - 1.19
+      - 1.20
+      - 1.21
+    Description: The desired version of your AWS EKS Cluster.
+  EKSClusterSubnets:
+    Type: CommaDelimitedList
+    Default: subnet-0d7fe1f4399452ff8,subnet-0d7fe1f4399452ff8   
+  EKSClusterSecGroups:
+    Type: CommaDelimitedList
+    Default: sg-0dfcbfcecce3f0460  
+  EKSNodeSubnets:
+    Type: CommaDelimitedList
+    Default: subnet-040cad91a830c3937  
+  EKSNodeSecGroups:
+    Type: CommaDelimitedList
+    Default: sg-0a2d1bec47f4b14c7 
+  EKSLinuxNodeGroupName:
+    Type: String
+    Default: LinuxNodeGroup
+    Description: The name of your AWS EKS Linux Node Group.
+  EKSLinuxNodesMin:
+    Type: String
+    Default: 1
+    Description: Min / Desired Number of Linux Node Group Nodes.
+  EKSLinuxNodesMax:
+    Type: String
+    Default: 1
+    Description: Max Number of Linux Node Group Nodes.
+  EKSLinuxNodesInstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type for the Linux Node Group Nodes.
+  EKSLinuxNodesKeyPair:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: "my-eks-key"
+    Description: The name of Key Pair to connect to Linux Node Group Nodes.
+  EKSLinuxNodesAMIID:
+    Type: "String"
+    Default: "ami-1234567"
+    Description: The AMI ID to use for linux nodes.
+  EKSLinuxNodesVolume1Size:
+    Type: String
+    Default: 30
+    Description: GB Size of the first EBS Volume.
+  EKSWindowsNodeGroupName:
+    Type: String
+    Default: WindowsNodeGroup
+    Description: The name of your AWS EKS Windows Node Group.
+  EKSWindowsNodesMin:
+    Type: String
+    Default: 1
+    Description: Min / Desired Number of Windows Node Group Nodes.
+  EKSWindowsNodesMax:
+    Type: String
+    Default: 1
+    Description: Max Number of Windows Node Group Nodes.
+  EKSWindowsNodesInstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type for the Windows Node Group Nodes.
+  EKSWindowsNodesKeyPair:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: "my-eks-key"
+    Description: The name of Key Pair to connect to Windows Node Group Nodes.
+  EKSWindowsNodesAMIID:
+    Type: "String"
+    Default: "ami-1234567"
+    Description: The AMI ID to use for windows nodes.
+  EKSWindowsNodesVolume1Size:
+    Type: String
+    Default: 30
+    Description: GB Size of the first EBS Volume.
+  LambdaBucket:
+    Type: String
+    Default: 238160719262-builds
+    Description: GB Size of the first EBS Volume.
+  LambdaFingerprintCodeFile:
+    Type: String
+    Default: cfn.zip
+    Description: Name and Path of the code bundle for the lambda.
+Resources:
+  EKSKMSKey:
+    Type: "AWS::KMS::Key"
+    Properties:
+      KeyPolicy: {
+        "Version": "2012-10-17",
+        "Id": "key-default-1",
+        "Statement": [
+          {
+            "Sid":  !Sub "${Environment} EKS Secrets Key",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+          }
+        ]
+      }
+  EKSClusterInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - eks.amazonaws.com
+              - lambda.amazonaws.com
+            Action:
+            - 'sts:AssumeRole'
+      RoleName: !Sub "${AppCode}-${Environment}-Cluster-Role"
+      Policies:
+        - PolicyName: EKS-KMS-Secrets
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:*
+                Resource: !GetAtt EKSKMSKey.Arn
+      ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  EKSClusterLoadBalancerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: "IAM Role for EKS to use when managing Load Balancer resources"
+      RoleName: !Sub '${AppCode}-${Environment}-LoadBal-Role'
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${AWS::Region}.amazonaws.com/id/${OIDCIssuerID}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "oidc.eks.${AWS::Region}.amazonaws.com/id/${OIDCIssuerID}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+                  }
+                }
+              }
+            ]
+           }
+        -  OIDCIssuerID: !Select [1, !Split ["/id/", !Select [1, !Split ["//", !GetAtt EKSCluster.OpenIdConnectIssuerUrl]]]] 
+      ManagedPolicyArns:
+        - !Ref EKSClusterLoadBalancerPolicy
+  EKSClusterLoadBalancerPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      Description: "IAM Policy for EKS to assume when managing Load Balancer resources"
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-LoadBal-Policy'
+      Path: /
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+            - iam:CreateServiceLinkedRole
+            - ec2:DescribeAccountAttributes
+            - ec2:DescribeAddresses
+            - ec2:DescribeAvailabilityZones
+            - ec2:DescribeInternetGateways
+            - ec2:DescribeVpcs
+            - ec2:DescribeSubnets
+            - ec2:DescribeSecurityGroups
+            - ec2:DescribeInstances
+            - ec2:DescribeNetworkInterfaces
+            - ec2:DescribeTags
+            - ec2:GetCoipPoolUsage
+            - ec2:DescribeCoipPools
+            - elasticloadbalancing:DescribeLoadBalancers
+            - elasticloadbalancing:DescribeLoadBalancerAttributes
+            - elasticloadbalancing:DescribeListeners
+            - elasticloadbalancing:DescribeListenerCertificates
+            - elasticloadbalancing:DescribeSSLPolicies
+            - elasticloadbalancing:DescribeRules
+            - elasticloadbalancing:DescribeTargetGroups
+            - elasticloadbalancing:DescribeTargetGroupAttributes
+            - elasticloadbalancing:DescribeTargetHealth
+            - elasticloadbalancing:DescribeTags
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - cognito-idp:DescribeUserPoolClient
+            - acm:ListCertificates
+            - acm:DescribeCertificate
+            - iam:ListServerCertificates
+            - iam:GetServerCertificate
+            - waf-regional:GetWebACL
+            - waf-regional:GetWebACLForResource
+            - waf-regional:AssociateWebACL
+            - waf-regional:DisassociateWebACL
+            - wafv2:GetWebACL
+            - wafv2:GetWebACLForResource
+            - wafv2:AssociateWebACL
+            - wafv2:DisassociateWebACL
+            - shield:GetSubscriptionState
+            - shield:DescribeProtection
+            - shield:CreateProtection
+            - shield:DeleteProtection
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - ec2:AuthorizeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupIngress
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - ec2:CreateSecurityGroup
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - ec2:CreateTags
+            Resource: arn:aws:ec2:*:*:security-group/*
+            Condition:
+              StringEquals:
+                ec2:CreateAction: CreateSecurityGroup
+              'Null':
+                aws:RequestTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - ec2:CreateTags
+            - ec2:DeleteTags
+            Resource: arn:aws:ec2:*:*:security-group/*
+            # Condition:
+            #   'Null':
+            #     aws:RequestTag/elbv2.k8s.aws/cluster: 'true'
+            #     aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - ec2:AuthorizeSecurityGroupIngress
+            - ec2:RevokeSecurityGroupIngress
+            - ec2:DeleteSecurityGroup
+            Resource: "*"
+            # Condition:
+            #   'Null':
+            #     aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:CreateLoadBalancer
+            - elasticloadbalancing:CreateTargetGroup
+            Resource: "*"
+            # Condition:
+            #   'Null':
+            #     aws:RequestTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:CreateListener
+            - elasticloadbalancing:DeleteListener
+            - elasticloadbalancing:CreateRule
+            - elasticloadbalancing:DeleteRule
+            Resource: "*"
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:AddTags
+            - elasticloadbalancing:RemoveTags
+            Resource:
+            - arn:aws:elasticloadbalancing:*:*:targetgroup/*/*
+            - arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*
+            - arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*
+            # Condition:
+            #   'Null':
+            #     aws:RequestTag/elbv2.k8s.aws/cluster: 'true'
+            #     aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:AddTags
+            - elasticloadbalancing:RemoveTags
+            Resource:
+            - arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*
+            - arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*
+            - arn:aws:elasticloadbalancing:*:*:listener-rule/net/*/*/*
+            - arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:ModifyLoadBalancerAttributes
+            - elasticloadbalancing:SetIpAddressType
+            - elasticloadbalancing:SetSecurityGroups
+            - elasticloadbalancing:SetSubnets
+            - elasticloadbalancing:DeleteLoadBalancer
+            - elasticloadbalancing:ModifyTargetGroup
+            - elasticloadbalancing:ModifyTargetGroupAttributes
+            - elasticloadbalancing:DeleteTargetGroup
+            Resource: "*"
+            # Condition:
+            #   'Null':
+            #     aws:ResourceTag/elbv2.k8s.aws/cluster: 'false'
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:RegisterTargets
+            - elasticloadbalancing:DeregisterTargets
+            Resource: arn:aws:elasticloadbalancing:*:*:targetgroup/*/*
+          - Effect: Allow
+            Action:
+            - elasticloadbalancing:SetWebAcl
+            - elasticloadbalancing:ModifyListener
+            - elasticloadbalancing:AddListenerCertificates
+            - elasticloadbalancing:RemoveListenerCertificates
+            - elasticloadbalancing:ModifyRule
+            Resource: "*"
+
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref EKSClusterName
+      Version: !Ref EKSClusterVersion
+      RoleArn:
+        "Fn::GetAtt": ["EKSClusterInstanceRole", "Arn"]
+      EncryptionConfig: 
+        - Resources: [ secrets ]
+          Provider:
+            KeyArn: !GetAtt EKSKMSKey.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds: !Ref EKSClusterSecGroups
+        SubnetIds: !Ref EKSClusterSubnets
+    DependsOn: [EKSClusterInstanceRole]
+  EKSNodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Sub "${AppCode}-${Environment}-Instance-Role"
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - !Sub "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - !Sub "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+      Path: /
+  EKSNodeInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - Ref: EKSNodeInstanceRole
+  EKSLinuxNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref EKSClusterName
+      NodeRole: 
+        "Fn::GetAtt": ["EKSNodeInstanceRole", "Arn"]
+      AmiType: AL2_x86_64
+      InstanceTypes: 
+        - !Ref EKSLinuxNodesInstanceType
+      NodegroupName: !Ref EKSLinuxNodeGroupName
+      RemoteAccess:
+        Ec2SshKey: !Ref EKSLinuxNodesKeyPair
+      ScalingConfig:
+        MinSize: !Ref EKSLinuxNodesMin
+        DesiredSize: !Ref EKSLinuxNodesMin
+        MaxSize: !Ref EKSLinuxNodesMax
+      Labels:
+        Project: aws-eks
+      Subnets: !Ref EKSNodeSubnets
+    DependsOn: [EKSCluster, EKSNodeInstanceRole]
+  EKSNodeLaunchTemplate:
+    Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref EKSWindowsNodesVolume1Size
+              VolumeType: gp2
+        IamInstanceProfile:
+          Arn: !GetAtt EKSNodeInstanceProfile.Arn
+        ImageId: !Ref EKSWindowsNodesAMIID
+        InstanceType: !Ref EKSWindowsNodesInstanceType
+        KeyName: !Ref EKSWindowsNodesKeyPair
+        # SecurityGroupIds: !Ref EKSNodeSecGroups
+        #   - !GetAtt EKSCluster.ClusterSecurityGroupId
+        SecurityGroupIds: !Split
+            - ","
+            - !Sub
+              - "${idList},${EKSCluster.ClusterSecurityGroupId}"
+              - idList: !Join [",",!Ref EKSNodeSecGroups]
+        UserData: !Base64
+          "Fn::Sub": |
+              <powershell>
+              [string]$EKSBinDir = "$env:ProgramFiles\Amazon\EKS"
+              [string]$EKSBootstrapScriptName = 'Start-EKSBootstrap.ps1'
+              [string]$EKSBootstrapScriptFile = "$EKSBinDir\$EKSBootstrapScriptName"
+              [string]$cfn_signal = "$env:ProgramFiles\Amazon\cfn-bootstrap\cfn-signal.exe"
+              & $EKSBootstrapScriptFile -EKSClusterName ${EKSClusterName} 3>&1 4>&1 5>&1 6>&1
+              $LastError = if ($?) { 0 } else { $Error[0].Exception.HResult }
+              & $cfn_signal --exit-code=$LastError `
+                --stack="${AWS::StackName}" `
+                --resource="EKSWindowsNodeGroup" `
+                --region=${AWS::Region}
+              </powershell>
+        MetadataOptions:
+          HttpPutResponseHopLimit : 2
+          HttpEndpoint: enabled
+          HttpTokens: optional
+  EKSWindowsNodeGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      AutoScalingGroupName: !Ref EKSWindowsNodeGroupName
+      DesiredCapacity: !Ref EKSWindowsNodesMin
+      LaunchTemplate:
+        LaunchTemplateId: !Ref EKSNodeLaunchTemplate
+        Version: !GetAtt EKSNodeLaunchTemplate.LatestVersionNumber
+      MaxSize: !Ref EKSWindowsNodesMax
+      MinSize: !Ref EKSWindowsNodesMin
+      Tags:
+        - Key: Name
+          PropagateAtLaunch: "true"
+          Value: !Sub ${EKSClusterName}-${EKSWindowsNodeGroupName}-Node
+        - Key: !Sub kubernetes.io/cluster/${EKSClusterName}
+          PropagateAtLaunch: "true"
+          Value: owned
+        - Key: !Sub eks:cluster-name
+          PropagateAtLaunch: "true"
+          Value: !Sub ${EKSClusterName}
+        - Key: !Sub eks:nodegroup-name
+          PropagateAtLaunch: "true"
+          Value: !Sub ${EKSWindowsNodeGroupName}
+      VPCZoneIdentifier: !Ref EKSNodeSubnets
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: "1"
+        MinInstancesInService: !Ref EKSWindowsNodesMin
+        PauseTime: PT5M
+  EKSClusterFingerprintFunction:
+    Type: AWS::Lambda::Function 
+    Properties:
+      Code:
+        S3Bucket:
+            Fn::Sub: "${LambdaBucket}"
+        S3Key:
+            Fn::Sub: "${LambdaFingerprintCodeFile}"
+      Role:
+        Fn::GetAtt:
+        - EKSClusterInstanceRole
+        - Arn
+      Handler: lambda.handler
+      Runtime: python3.8
+      MemorySize: 128
+      Timeout: 10
+      FunctionName: !Sub '${AppCode}-${Environment}-Cluster-Fingerprint-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+  EKSClusterFingerprint:
+    Type: Custom::EKSClusterFingerprint
+    Properties:
+      ServiceToken: !GetAtt EKSClusterFingerprintFunction.Arn
+      OIDCHostname: !Select [0, !Split ["/id/", !Select [1, !Split ["//", !GetAtt EKSCluster.OpenIdConnectIssuerUrl]]]]
+  EKSOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      ClientIdList: 
+        - sts.amazonaws.com
+      ThumbprintList: 
+        - !GetAtt EKSClusterFingerprint.Fingerprint
+      Url: !GetAtt EKSCluster.OpenIdConnectIssuerUrl
+
+Outputs:
+  EKSClusterName:
+    Value: !Ref EKSCluster
+  EKSArn:
+    Value: !GetAtt EKSCluster.Arn
+  EKSCertificateAuthorityData:
+    Value: !GetAtt EKSCluster.CertificateAuthorityData
+  EKSEndpoint:
+    Value: !GetAtt EKSCluster.Endpoint
+  OIDCIssuerID:
+    Value: !Select [1, !Split ["/id/", !Select [1, !Split ["//", !GetAtt EKSCluster.OpenIdConnectIssuerUrl]]]]
+  OIDCIssuerURL:
+    Value: !Select [1, !Split ["//", !GetAtt EKSCluster.OpenIdConnectIssuerUrl]]
+  EKSClusterFingerprint:
+    Value: !GetAtt EKSClusterFingerprint.Fingerprint

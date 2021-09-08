@@ -1,0 +1,177 @@
+#
+# Read Only Role Definition
+#
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: read-only-cluster-role
+rules:
+#Cluster Objects
+  - apiGroups:
+    - "core"
+    resources:
+    - "namespaces"
+    - "nodes"
+    - "componentstatuses"
+    - "persistentvolumes"
+    - "persistentvolumeclaims"
+    - "serviceaccounts"
+    verbs:
+    - "get"
+    - "list"
+    - "describe"
+    - "watch"
+  - apiGroups:
+    - "rbac.authorization.k8s.io"
+    resources:
+    - "clusterroles"
+    - "clusterrolebindings"
+    - "roles"
+    - "rolebindings"
+    verbs:
+    - "get"
+    - "list"
+    - "describe"
+    - "watch"
+  - apiGroups:
+    - "networking.k8s.io"
+    resources:
+    - "networkpolicies"
+    verbs:
+    - "get"
+    - "list"
+    - "describe"
+    - "watch"
+ #Namespace Objects
+  - apiGroups:
+    - ""
+    - "apps"
+    - "batch"
+    - "extensions"
+    - "namespaces"
+    resources:
+    - "configmaps"
+    - "cronjobs"
+    - "deployments"
+    - "events"
+    - "ingresses"
+    - "jobs"
+    - "pods"
+    - "pods/log"
+    - "secrets"
+    - "services"
+    verbs:
+    - "get"
+    - "list"
+    - "describe"
+    - "watch"
+---
+# Binding this role at the cluster level grants access across all namespaces.
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: read-only-cluster-role-binding
+subjects:
+  - kind: Group
+    name: read-only-group
+    namespace: ""
+    apiGroup: "rbac.authorization.k8s.io"
+roleRef:
+  kind: ClusterRole
+  name: read-only-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+#
+# Development Role Definition.
+# Defined at cluster level, intended to be applied at the namespace level.
+# 
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: development-role
+rules:
+  - apiGroups:
+      - ""
+      - "apps"
+      - "batch"
+      - "extensions"
+      - "namespaces"
+    resources:
+      - "configmaps"
+      - "cronjobs"
+      - "deployments"
+      - "events"
+      - "ingresses"
+      - "jobs"
+      - "pods"
+      - "pods/attach"
+      - "pods/exec"
+      - "pods/log"
+      - "pods/portforward"
+      - "secrets"
+      - "services"
+    verbs:
+      - "create"
+      - "delete"
+      - "describe"
+      - "get"
+      - "list"
+      - "patch"
+      - "update"
+---
+# This RoleBinding applies the cluster role down to a specific namespace.
+# allowing this binding to be applied to developers acting for a specific domain/namespace.
+# find and replace (or template out) "default" and replace with domain specific role. (like rnl or transport4vic etc.)
+# Do not duplicate the Role definition per namespace, only the binding.
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dev-role-binding 
+  namespace: default # change this to match workload
+subjects:
+- kind: Group
+  name: development-group-default # change this to match workload
+  apiGroup: rbac.authorization.k8s.io  
+roleRef:
+  kind: ClusterRole
+  name: development-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+#
+# Namespace Admin Role Definition.
+# Defined at cluster level, intended to be applied at the namespace level.
+# Never grant via a Cluster Role Binding, this would be equivalent to entire cluster control.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: namespace-admin-role
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+---
+# This RoleBinding applies the cluster role down to a specific namespace.
+# allowing this binding to be applied to developers acting for a specific domain/namespace.
+# find and replace (or template out) "default" and replace with domain specific role. (like rnl or transport4vic etc.)
+# Do not duplicate the Role definition per namespace, only the binding.
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: k8s-admin-role-binding
+  namespace: default #change this to match workload
+subjects:
+- kind: Group
+  name: admin-group-default # change this to match workload
+  apiGroup: rbac.authorization.k8s.io  
+roleRef:
+  kind: ClusterRole
+  name: namespace-admin-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# No Cluster Admin role defined, map a role ARN to system:masters in aws-auth config map.
+#

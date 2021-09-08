@@ -1,0 +1,30 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.8
+  pre_build:
+    commands:
+    - python3 -m venv env
+  build:
+    commands:
+    - 'true'
+  post_build:
+    commands:
+    - aws --version
+    # read in the ENV for this environment and fill in the CFN parameters
+    # get rid of this env var because were using Codebuilds
+    - sed -i '/^export AWS_PROFILE/d' ./config/.env.$ENVIRONMENT
+    - chmod 777 ./config/.env.$ENVIRONMENT
+    - echo reading in ./config/.env.$ENVIRONMENT
+    - . ./config/.env.$ENVIRONMENT
+    - echo prepare base template parameters
+    - cat ./cfn/template-eks-platform.params.json | sed 's/\r//g' | sed 's/\n//g' > ./cfn/template-eks-platform.orig
+    - envsubst < ./cfn/template-eks-platform.orig > ./cfn/template-eks-platform.params.json
+    - cat ./cfn/template-eks-platform.params.json
+
+artifacts:
+  files:
+    - cfn/template-eks-platform.yaml
+    - cfn/template-eks-platform.params.json
+

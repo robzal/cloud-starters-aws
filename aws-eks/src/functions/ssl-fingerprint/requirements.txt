@@ -1,0 +1,4 @@
+pyopenssl
+certifi
+crhelper
+boto3

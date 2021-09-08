@@ -1,0 +1,312 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Pipeline and Build Projects for EKS Platform deployment for a single environmentin AWS
+Parameters:
+    Environment:
+        Type: String
+        Default: SIT1
+        Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+    AppCode:
+        Type: String
+        Default: EKS-Platform
+        Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+    PipelineBucket:
+        Type: String
+        Default: 583812563872-pipelines
+        Description: Name of S3 bucket for CodePipeline to use
+    PipelineBucketKMSKeyARN:
+        Type: String
+        Default: arn:aws:kms:ap-southeast-2:583812563872:key/db041cc6-935a-4b34-a539-d5c3ea6669ec
+        Description: ARN of KMS key used for S3 pipeline bucket encryption
+    CloudformationBucket:
+        Type: String
+        Default: 583812563872-cloudformation
+        Description: Name of S3 bucket for Cloudformation Templates
+    BuildBucket:
+        Type: String
+        Default: 583812563872-builds
+        Description: Name of S3 bucket for build artefacts 
+    CodeCommitRepo:
+        Type: String
+        Default: ECS-BitBucket-Sync
+        Description: Name of the CodeCommit Repo comtaining source to deploy with the pipeline
+    CodeCommitBranch:
+        Type: String
+        Default: master
+        Description: Name of the CodeCommit Branch for Dev / Test Builds
+    DeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::583812563872:role/DeploymentRole
+        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+    CodeBuildImage:
+        Type: String
+        Default: "aws/codebuild/standard:4.0"
+        Description: Name of the image to use for the CodeBuild container
+    CodeBuildCompute:
+      Type: String
+      Default: "BUILD_GENERAL1_MEDIUM"
+      Description: Container Size to use for the CodeBuild container
+    VPCID:
+      Type: String
+      Default: "vpc-8bfcb8ec"
+      Description: The VPC for PostDeploy CodeBuild project to run in
+    VPCSubnetIDs:
+      Type: CommaDelimitedList
+      Default: "subnet-0c24fe54"
+      Description: The Subnets for PostDeploy CodeBuild project to run in. These should be private and use NATGW egress
+    VPCSecGroupID:
+      Type: String
+      Default: "sg-9a64c0e2"
+      Description: The SecurityGroup for PostDeploy CodeBuild project to use. It needs Egress Only
+Resources:
+
+    PreDeployProject:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Name: !Sub ${Environment}-${AppCode}-PreDeploy-Project
+            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: LINUX_CONTAINER
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: buildspec-predeploy.yaml
+    PostDeployProject:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Name: !Sub ${Environment}-${AppCode}-PostDeploy-Project
+            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: LINUX_CONTAINER
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: buildspec-postdeploy.yaml
+            VpcConfig:
+              VpcId: !Ref VPCID
+              Subnets: !Ref VPCSubnetIDs
+              SecurityGroupIds: 
+                - !Ref VPCSecGroupID
+    PipelinePolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: arn:aws:logs:*:*:*
+            - Effect: Allow
+              Action:
+                - ecr:InitiateLayerUpload
+              Resource: arn:aws:ecr:ap-southeast-2:*:repository/*
+            - Effect: Allow
+              Action: 
+                - 's3:*'
+              Resource:
+                - !Sub 'arn:aws:s3:::${PipelineBucket}/*'
+                - !Sub 'arn:aws:s3:::${PipelineBucket}'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}/*'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}'
+                - !Sub 'arn:aws:s3:::${BuildBucket}/*'
+                - !Sub 'arn:aws:s3:::${BuildBucket}'
+            - Effect: Allow
+              Action:
+                - 'iam:PassRole'
+                - 'codepipeline:PutJobSuccessResult'
+                - 'codepipeline:PutJobFailureResult'
+                - 'lambda:InvokeFunction'
+                - 'ecr:*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'codecommit:*'
+              Resource: 
+                - !Sub 'arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepo}'
+            - Effect: Allow
+              Action:
+                - 'codebuild:StartBuild'
+                - 'codebuild:BatchGetBuilds'
+              Resource: 
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${Environment}-${AppCode}-PreDeploy-Project'
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${Environment}-${AppCode}-PostDeploy-Project'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'              
+              Resource: 
+                - "*"
+            - Effect: Allow
+              Action:
+                - 'kms:*'
+              Resource: 
+                - !Ref PipelineBucketKMSKeyARN
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: 
+                - !Ref DeploymentRoleARN
+    PipelineRole:
+      Type: AWS::IAM::Role
+      Properties:
+          RoleName: !Sub '${Environment}-${AppCode}-CodePipeline-IAMRole'
+          AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codepipeline.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codebuild.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - lambda.amazonaws.com
+          Path: /
+          ManagedPolicyArns:
+              - !Ref PipelinePolicy
+    Pipeline:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyARN
+                  Type: KMS
+            Name: !Sub ${Environment}-${AppCode}_pipeline01
+            RoleArn: !GetAtt PipelineRole.Arn
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: Source
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeCommit
+                        Version: 1
+                      Configuration:
+                        RepositoryName: !Ref CodeCommitRepo
+                        BranchName: !Ref CodeCommitBranch
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: PreDeploy
+                  Actions:
+                    - Name: PreDeploy
+                      Namespace: predeploy
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref PreDeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${Environment}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: PreDeployZip
+                      RunOrder: 1
+                - Name: Cloudformation-EKS-Platform
+                  Actions:
+                    - Name: Cloudformation-EKS-Platform
+                      RoleArn: !Ref DeploymentRoleARN
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CREATE_UPDATE
+                        RoleArn: !Ref DeploymentRoleARN
+                        StackName: !Sub "${Environment}-${AppCode}-BaseStack"
+                        TemplatePath: PreDeployZip::cloudformation/template-eks-platform.yaml
+                        TemplateConfiguration: PreDeployZip::cloudformation/template-eks-platform.params.json
+                        Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                      InputArtifacts:
+                        - Name: PreDeployZip
+                      RunOrder: 1
+                - Name: Cloudformation-EKS-RNL
+                  Actions:
+                    - Name: Cloudformation-EKS-RNL
+                      RoleArn: !Ref DeploymentRoleARN
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CREATE_UPDATE
+                        RoleArn: !Ref DeploymentRoleARN
+                        StackName: !Sub "${Environment}-${AppCode}-RnLStack"
+                        TemplatePath: PreDeployZip::cloudformation/template-eks-rnl.yaml
+                        TemplateConfiguration: PreDeployZip::cloudformation/template-eks-rnl.params.json
+                        Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                      InputArtifacts:
+                        - Name: PreDeployZip
+                      RunOrder: 1
+                - Name: PostDeploy
+                  Actions:
+                    - Name: PostDeploy
+                      Namespace: postdeploy
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref PostDeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${Environment}","type":"PLAINTEXT"},
+                          {"name":"STACK_NAME","value":"${Environment}-${AppCode}-Stack","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: PostDeployZip
+                      RunOrder: 1
