@@ -37,7 +37,7 @@ kubectl apply --validate=false -f .k8s-aws-load-balancer-2_2_0_full.yaml
 aws eks update-cluster-config \
 --region $AWS_REGION \
 --name $EKS_CLUSTER_NAME \
---resources-vpc-config endpointPublicAccess=true,publicAccessCidrs="$PUBLIC_CLUSTER_ALLOWED_IPS",endpointPrivateAccess=true \
+--resources-vpc-config endpointPublicAccess=true,publicAccessCidrs="$ALLOWED_PUBLIC_IPS",endpointPrivateAccess=true \
 --profile $AWS_PROFILE > /dev/null 2>&1; exit 0
 
 # only one call at a time to update-cluster-config seems to work, so you'll need to comment out the above and uncomment the below to enable logging

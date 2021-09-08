@@ -104,11 +104,11 @@ Resources:
             Service: "cloudtrail.amazonaws.com"
           Action: "s3:PutObject"
           Resource: !Sub "arn:aws:s3:::${CloudtrailBucket}/AWSLogs/${AWS::AccountId}/*"
-  UtilitiesBucket:
+  DeploymentsBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-utilities'
+      BucketName: !Sub '${AWS::AccountId}-deployments'
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -116,7 +116,7 @@ Resources:
               SSEAlgorithm: 'aws:kms'
       LoggingConfiguration:
         DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/utilities
+        LogFilePrefix: s3serveraccesslogs/deployments
 
 Outputs:
   LoggingBucket:
@@ -131,7 +131,7 @@ Outputs:
     Value: !Ref CloudtrailBucket
     Export:
       Name: !Sub 'Cloudtrail-bucket'
-  UtilitiesBucket:
-    Value: !Ref UtilitiesBucket
+  DeploymentsBucket:
+    Value: !Ref DeploymentsBucket
     Export:
-      Name: !Sub 'Utilities-bucket'
+      Name: !Sub 'Deployments-bucket'

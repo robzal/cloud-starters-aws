@@ -44,7 +44,7 @@ phases:
       aws eks update-cluster-config \
       --region $AWS_REGION \
       --name $EKS_CLUSTER_NAME \
-      --resources-vpc-config endpointPublicAccess=true,publicAccessCidrs="$PUBLIC_CLUSTER_ALLOWED_IPS",endpointPrivateAccess=true \
+      --resources-vpc-config endpointPublicAccess=true,publicAccessCidrs="$ALLOWED_PUBLIC_IPS",endpointPrivateAccess=true \
       --profile deployrole > /dev/null 2>&1; exit 0
 
     - sleep 180

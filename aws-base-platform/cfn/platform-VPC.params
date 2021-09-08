@@ -4,4 +4,4 @@ CreateNATGW=${CREATE_NATGW}
 CreatePeeringRole=${CREATE_VPC_PEERING_ROLE}
 PeeringRoleName=${VPC_PEERING_ROLE_NAME}
 PeeringRoleTrustedAccountIds=${VPC_PEERING_TRUSTED_ACCOUNTS}
-AdminIPAddress=${ADMIN_IP_ADDRESS}
+AdminIPAddress=${ALLOWED_PUBLIC_IPS}

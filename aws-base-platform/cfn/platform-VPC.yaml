@@ -66,6 +66,9 @@
         MapPublicIpOnLaunch: "true"
         Tags:
           -
+            Key: "kubernetes.io/role/elb"
+            Value:  "1"
+          -
             Key: "Name"
             Value:  !Sub '${VPCName}-Public-A'
     PublicSubnetAZ2:
@@ -77,6 +80,9 @@
         CidrBlock: !Select [ 1, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
         MapPublicIpOnLaunch: "true"
         Tags:
+          -
+            Key: "kubernetes.io/role/elb"
+            Value:  "1"
           -
             Key: "Name"
             Value:  !Sub '${VPCName}-Public-B'
@@ -150,6 +156,9 @@
         CidrBlock: !Select [ 4, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
         Tags:
           -
+            Key: "kubernetes.io/role/internal-elb"
+            Value:  "1"
+          -
             Key: "Name"
             Value:  !Sub '${VPCName}-Private-A'
     PrivateSubnetAZ2:
@@ -160,6 +169,9 @@
         AvailabilityZone: !Sub '${AWS::Region}b'
         CidrBlock: !Select [ 5, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
         Tags:
+          -
+            Key: "kubernetes.io/role/internal-elb"
+            Value:  "1"
           -
             Key: "Name"
             Value:  !Sub '${VPCName}-Private-B'
