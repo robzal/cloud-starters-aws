@@ -18,6 +18,13 @@ Parameters:
   SSLDomainName:
     Description: DNS Domain for SSL Cert in ACM
     Type: String 
+  SSLDomainValidation:
+    Description: Domain Validation method for SSL Cert authorisation
+    Type: String 
+    AllowedValues: [DNS, EMAIL]
+  SSLDomainValidationEmail:
+    Description: Domain to which validation email will be sent for SSL Cert authorisation
+    Type: String 
   VPCID:
     Description: VPCID if making the Route 53 Zone a Private Zone
     Type: String 
@@ -32,27 +39,34 @@ Conditions:
   PublicZone: !Equals 
     - !Ref VPCID
     - ""
+  DNSValidation: !Equals 
+    - !Ref SSLDomainValidation
+    - "DNS"
+  EMAILValidation: !Equals 
+    - !Ref SSLDomainValidation
+    - "EMAIL"
 
 Resources:
   R53Domain: 
-    Type: "AWS::Route53::HostedZone"
+    Type: AWS::Route53::HostedZone
     Condition: ShouldCreateR53Zone
     Properties: 
       Name: !Ref DNSDomainName
       VPCs: 
-        !If
-        - PublicZone
-        - !Ref "AWS::NoValue"        
-        - 
-          VPCId: !Ref VPCID
-          VPCRegion: !Sub '${AWS::Region}'
+        - !If
+          - PublicZone
+          - !Ref "AWS::NoValue"        
+          - 
+            VPCId: !Ref VPCID
+            VPCRegion: !Sub ${AWS::Region}
 
   SSLCertificate: 
     Type: AWS::CertificateManager::Certificate 
     Condition: ShouldCreateSSLCert
     Properties: 
       DomainName: !Ref SSLDomainName
-      ValidationMethod: DNS
+      ValidationMethod: !Ref SSLDomainValidation
       DomainValidationOptions:
         - DomainName: !Ref SSLDomainName
-          HostedZoneId: !Ref R53Domain
+          HostedZoneId: !If [DNSValidation, !Ref DNSDomainName, !Ref "AWS::NoValue"]
+          ValidationDomain: !If [EMAILValidation, !Ref SSLDomainValidationEmail, !Ref "AWS::NoValue"]

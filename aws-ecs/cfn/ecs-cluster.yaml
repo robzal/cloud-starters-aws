@@ -57,15 +57,15 @@ Parameters:
     ECSClusterSecGroups:
         Description: Instance type for the ECS Cluster
         Type: CommaDelimitedList
-        Default: sg-09d40416a978d5c72
+        Default: sg-0f91af3db8e19143c
     ECSClusterSubnet1:
         Description: Subnet ID 1 for Cluster
         Type: String
-        Default: subnet-031079d089d751bce
+        Default: subnet-0f95dfdd34cb4c53c
     ECSClusterSubnet2:
         Description: Subnet ID 2 for Cluster
         Type: String
-        Default: subnet-0cad3d3e49c3c4bac
+        Default: subnet-06e59c5cc754e109b
 
     ECRTrustedAccounts:
         Type: CommaDelimitedList

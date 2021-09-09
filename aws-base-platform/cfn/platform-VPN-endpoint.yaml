@@ -25,11 +25,11 @@
     VPNTargetSubnetID:
       Description: The subnet ID to attached the VPN endpoint to.
       Type: String
-      Default: "subnet-031079d089d751bce"
+      Default: "subnet-0f95dfdd34cb4c53c"
     VPNSecurityGroupIDs:
       Description: The subnet ID to attached the VPN endpoint to.
       Type: CommaDelimitedList
-      Default: "sg-0121b945fa665cd48"
+      Default: "sg-0f91af3db8e19143c"
     VPNServerCertificateArn:
       Description: The arn of a server certificate for the VPN endpoint to use.
       Type: String
