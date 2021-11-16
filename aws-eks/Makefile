@@ -37,7 +37,7 @@ pipeline:
 
 .PHONY: deploy deploy-kube-setup deploy-kube-apps
 deploy:
-	aws s3 cp ./packages/${LAMBDA_FINGERPRINT_CODEFILE} s3://${LAMBDA_BUCKET}/${APP_CODE}/ --profile ${AWS_PROFILE}
+	aws s3 cp ./packages/${FINGERPRINT_LAMBDA_CODEFILE} s3://${DEPLOYMENT_BUCKET}/${APP_CODE}/ --profile ${AWS_PROFILE}
 	$(call deployaws,${AWS_PROFILE},${APP_CODE},${CHANGESET_OPTION},cfn/eks-cluster.yaml,cfn/eks-cluster.params,${APP_CODE}-${ENVIRONMENT}-eks-cluster)
 
 deploy-kube-setup:
