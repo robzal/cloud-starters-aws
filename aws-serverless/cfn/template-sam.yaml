@@ -1,0 +1,554 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: 'The following CloudFormation deploys demo serverless resources'
+Parameters:
+  Environment:
+    Type: 'String'
+    Default: 'dev'
+  AppCode:
+    Type: 'String'
+    Default: 'demo-serverless'
+  TZ:
+    Type: 'String'
+    Default: 'Australia/Melbourne'
+  SubnetIds:
+    Type: 'String'
+    Default: 'subnet-d6f10a9e,subnet-513f4709,subnet-0e33fd68'
+  CreateAPIKey:
+    Type: 'String'
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  TaskMemory:
+    Description: Amount of memory assigned to lambda and container tasks
+    Type: 'String'
+    Default: '512'
+    AllowedValues: ['512', '1024', '2048']
+  TaskCPU:
+    Description: Amount of cpu slice assigned to container tasks
+    Type: 'String'
+    Default: '256'
+    AllowedValues: ['256', '512', '1024']
+  TaskRepository:
+    Type: 'String'
+    Default: '238160719262.dkr.ecr.ap-southeast-2.amazonaws.com'
+  TaskImage:
+    Type: 'String'
+    Default: 'demo-serverless-demo-data-load:latest'
+
+Conditions:
+    DoAPIKEY: !Equals 
+      - !Ref CreateAPIKey
+      - 'true'
+
+Globals:
+  Function:
+    Environment:
+      Variables:
+        ENVIRONMENT: !Sub '${Environment}'
+        APP_CODE: !Sub '${AppCode}'
+        TZ: !Ref 'TZ'
+Resources:
+  DataLoadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AppCode}-${Environment}-data-load'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3'
+              SSEAlgorithm: 'aws:kms'
+      VersioningConfiguration:
+        Status: Enabled
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+        LogFilePrefix: s3serveraccesslogs/data-load
+  UsersDynamoDBTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: !Sub '${AppCode}-${Environment}-users'
+      AttributeDefinitions:
+        - AttributeName: 'userid'
+          AttributeType: 'S'
+        - AttributeName: 'firstname'
+          AttributeType: 'S'
+        - AttributeName: 'surname'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'userid'
+          KeyType: 'HASH'
+      BillingMode: 'PAY_PER_REQUEST'
+      StreamSpecification:
+        StreamViewType: 'NEW_AND_OLD_IMAGES'
+      GlobalSecondaryIndexes:
+        -
+          IndexName: 'firstname-index'
+          KeySchema:
+            -
+              AttributeName: 'firstname'
+              KeyType: 'HASH'
+          Projection:
+            NonKeyAttributes:
+              - 'surname'
+              - 'userid'
+            ProjectionType: 'INCLUDE'
+        -
+          IndexName: 'surname-index'
+          KeySchema:
+            -
+              AttributeName: 'surname'
+              KeyType: 'HASH'
+          Projection:
+            NonKeyAttributes:
+              - 'firstname'
+              - 'userid'
+            ProjectionType: 'INCLUDE'
+        
+  S3ReadWritePolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-S3-ReadWrite-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:ListBucket'
+              - 's3:GetBucket*'
+              - 's3:GetObject*'
+              - 's3:PutObject'
+              - 's3:PutObjectTagging'
+              - 's3:DeleteObject'
+              - 's3:DeleteObjectTagging'
+              - 's3:ListMultipartUploadParts'
+              - 's3:AbortMultipartUpload'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AppCode}-${Environment}-data-load'
+              - !Sub 'arn:aws:s3:::${AppCode}-${Environment}-data-load/*'
+  DynamoReadWritePolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-DynamoDB-ReadWrite-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'dynamodb:BatchGet*'
+              - 'dynamodb:DescribeStream'
+              - 'dynamodb:DescribeTable'
+              - 'dynamodb:Get*'
+              - 'dynamodb:Query'
+              - 'dynamodb:Scan'
+              - 'dynamodb:BatchWrite*'
+              - 'dynamodb:DeleteItem'
+              - 'dynamodb:UpdateItem'
+              - 'dynamodb:PutItem'
+            Resource:
+              - !Sub '${UsersDynamoDBTable.Arn}'
+              - !Sub '${UsersDynamoDBTable.Arn}/index/*'
+  StepFunctionPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-StepFunction-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'states:Send*'
+              - 'states:StartExecution'
+            Resource:
+              - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-DataLoad'
+  CloudwatchPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-Cloudwatch-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLog*'
+              - 'logs:GetLog*'
+              - 'logs:PutLog*'
+              - 'logs:DescribeLog*'
+              - 'logs:DeleteMessage*'
+              - 'logs:ListLogDeliveries'
+              - 'logs:UpdateLogDelivery'
+              - 'logs:DeleteLogDelivery'
+              - 'logs:PutResourcePolicy'
+              - 'logs:DescribeResourcePolicies'
+            Resource:
+              - '*'
+
+  StatesExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-StateMachineRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action: 'sts:AssumeRole'
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - !Sub events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: "/"
+      ManagedPolicyArns:
+        - !Ref 'CloudwatchPolicy'
+        - !Ref 'StepFunctionPolicy'
+      Policies:
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                  - 'ecs:RunTask'
+                  - 'iam:PassRole'
+                Resource: '*'
+  DataLoadStateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoadStateMachine'
+  DataLoadStateMachine:
+    Type: 'AWS::StepFunctions::StateMachine'
+    Properties:
+      StateMachineName: !Sub '${AppCode}-${Environment}-DataLoad'
+      DefinitionString:
+        !Sub
+          - |-
+            {
+              "Comment": "Report Engine process",
+              "StartAt": "DataLoad",
+              "States": {
+                  "DataLoad": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::ecs:runTask.waitForTaskToken",
+                      "Parameters": {
+                          "LaunchType": "FARGATE",
+                          "Cluster": "${ServerlessECSCluster}",
+                          "PlatformVersion": "1.4.0",
+                          "TaskDefinition": "${DataLoadTaskDefinition}",
+                          "NetworkConfiguration": {
+                              "AwsvpcConfiguration": {
+                                  "Subnets": [
+                                      "${NetworkA}",
+                                      "${NetworkB}"
+                                  ],
+                                  "AssignPublicIp": "ENABLED"
+                              }
+                          },
+                          "Overrides": {
+                              "ContainerOverrides": [
+                                  {
+                                      "Name": "DataLoad",
+                                      "Environment": [
+                                          {
+                                              "Name": "taskToken",
+                                              "Value.$": "$$.Task.Token"
+                                          },
+                                          {
+                                              "Name": "executionId",
+                                              "Value.$": "$$.Execution.Id"
+                                          }
+                                      ]
+                                  }
+                              ]
+                          }
+                      },
+                      "HeartbeatSeconds": 3600,
+                      "Retry": [
+                          {
+                              "ErrorEquals": [
+                                  "States.ALL"
+                              ],
+                              "IntervalSeconds": 10,
+                              "MaxAttempts": 2,
+                              "BackoffRate": 1.2
+                          }
+                      ],
+                      "End": true
+                  }
+              }
+            }         
+          -
+            ServerlessECSCluster: !GetAtt 'ServerlessECSCluster.Arn'
+            DataLoadTaskDefinition: !Ref 'DataLoadECSTaskDefinition'
+            NetworkA: !Select [0, !Split [',', !Sub "${SubnetIds}"]]
+            NetworkB: !Select [1, !Split [',', !Sub "${SubnetIds}"]]
+      RoleArn: !GetAtt 'StatesExecutionRole.Arn'
+      LoggingConfiguration:
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn: !GetAtt 'DataLoadStateMachineLogGroup.Arn'
+        IncludeExecutionData: true
+        Level: ALL
+        Level: ERROR    
+
+  UtilsLayer:
+    Type: 'AWS::Serverless::LayerVersion'
+    Properties:
+      Description: !Sub 'Layer for utils "'
+      ContentUri: ../src/layers/utils/
+      CompatibleRuntimes:
+        - 'python3.8'
+      LayerName: !Sub '${AppCode}-${Environment}-Utils'
+  ModelsLayer:
+    Type: 'AWS::Serverless::LayerVersion'
+    Properties:
+      Description: !Sub 'Layer for models "'
+      ContentUri: ../src/layers/models/
+      CompatibleRuntimes:
+        - 'python3.8'
+      LayerName: !Sub '${AppCode}-${Environment}-Models'
+
+  ServerlessECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AppCode}-${Environment}-cluster"  
+  ServerlessECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  DataLoadECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess"
+      - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      - !Ref 'S3ReadWritePolicy'
+      - !Ref 'DynamoReadWritePolicy'
+      - !Ref 'CloudwatchPolicy'
+      - !Ref 'StepFunctionPolicy'
+  DataLoadECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      Family: !Sub ${AppCode}-${Environment}-data-load
+      ExecutionRoleArn: !Ref ServerlessECSTaskExecutionRole
+      TaskRoleArn: !Ref DataLoadECSTaskRole
+      Cpu: !Ref TaskCPU
+      Memory: !Ref TaskMemory
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities: 
+        - "FARGATE"
+      ContainerDefinitions: 
+        - 
+          Cpu: !Ref TaskCPU
+          Environment: 
+            - 
+              Name: USER_TABLE_NAME
+              Value: !Sub '${AppCode}-${Environment}-users'
+            - 
+              Name: TZ
+              Value: !Ref 'TZ'
+          Image: !Sub '${TaskRepository}/${TaskImage}'
+          LogConfiguration: 
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub 'ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoad'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "ecs"
+          Memory: !Ref TaskMemory
+          MemoryReservation: !Ref TaskMemory
+          Name: DataLoad
+  DataLoadECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub 'ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoad'
+  DataLoadECRRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName:  !Sub ${AppCode}-${Environment}-data-load
+      RepositoryPolicyText:
+        !Sub
+          - |-
+            {
+                "Version": "2008-10-17",
+                "Statement": [
+                    {
+                    "Sid": "new statement",
+                    "Effect": "Allow",
+                    "Principal": "*",
+                    "Action": "*"
+                    }
+                ]
+            }
+          -
+            AccountNumber: !Ref "AWS::AccountId"
+
+  DataLoadFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: 'lambda_function.lambda_handler'
+      FunctionName: !Sub '${AppCode}-${Environment}-data-load'
+      Runtime: 'python3.8'
+      CodeUri: '../src/lambdas/dataload/'
+      MemorySize: !Ref TaskMemory
+      Timeout: 300
+      Tracing: 'Active'
+      Layers:
+        - !Ref 'UtilsLayer'
+        - !Ref 'ModelsLayer'
+      Policies:
+        - 'AWSLambdaBasicExecutionRole'
+        - !Ref 'DynamoReadWritePolicy'
+        - !Ref 'S3ReadWritePolicy'
+      Environment:
+        Variables:
+          DATA_LOAD_BUCKET: !Sub '${AppCode}-${Environment}-data-load'
+          USER_TABLE: !Sub '${AppCode}-${Environment}-users'
+      Events:
+        S3Event:
+          Type: S3 
+          Properties:
+            Bucket: !Ref DataLoadBucket
+            Events: s3:ObjectCreated:*
+  DynamoStreamFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: 'lambda_function.lambda_handler'
+      FunctionName: !Sub '${AppCode}-${Environment}-dynamo-stream'
+      Runtime: 'python3.8'
+      CodeUri: '../src/lambdas/dynamostream/'
+      MemorySize: !Ref TaskMemory
+      Timeout: 300
+      Tracing: 'Active'
+      Layers:
+        - !Ref 'UtilsLayer'
+        - !Ref 'ModelsLayer'
+      Policies:
+        - 'AWSLambdaBasicExecutionRole'
+        - !Ref 'DynamoReadWritePolicy'
+        - !Ref 'S3ReadWritePolicy'
+      Environment:
+        Variables:
+          USER_TABLE: !Sub '${AppCode}-${Environment}-users'
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt 'UsersDynamoDBTable.StreamArn'
+            BatchSize: 5
+            StartingPosition: 'LATEST'
+  UserAPIFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: 'lambda_function.lambda_handler'
+      FunctionName: !Sub '${AppCode}-${Environment}-UserAPIFunction'
+      Runtime: 'python3.8'
+      CodeUri: '../src/lambdas/user_api/'
+      MemorySize: !Ref TaskMemory
+      Timeout: 300
+      Tracing: 'Active'
+      Policies:
+        - 'AWSLambdaBasicExecutionRole'
+        - !Ref 'DynamoReadWritePolicy'
+        - !Ref 'S3ReadWritePolicy'
+      Layers:
+        - !Ref 'UtilsLayer'
+        - !Ref 'ModelsLayer'
+      Environment:
+        Variables:
+          USER_TABLE: !Sub '${AppCode}-${Environment}-users'
+      Events:
+        UsersRoot:
+          Type: Api 
+          Properties:
+            Path: /users
+            Method: any
+            RestApiId: !Ref UserAPI
+        Users:
+          Type: Api 
+          Properties:
+            Path: /users/{proxy+}
+            Method: any
+            RestApiId: !Ref UserAPI
+  UserAPICloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+  UserAPIAccount:
+    Type: 'AWS::ApiGateway::Account'
+    Properties:
+      CloudWatchRoleArn: !GetAtt 
+        - UserAPICloudWatchRole
+        - Arn
+  UserAPILogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${AppCode}-${Environment}-UserAPI'
+  UserAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub '${AppCode}-${Environment}-UserAPI'
+      StageName: v1
+      # Auth:
+      #   # ApiKeyRequired: !If [ DoAPIKEY, true, false ]
+      #   UsagePlan:
+      #     CreateUsagePlan: PER_API
+      #     Description: Usage plan for this API
+      #     Throttle:
+      #       BurstLimit: 200
+      #       RateLimit: 100
+      AccessLogSetting:
+        DestinationArn: !GetAtt UserAPILogGroup.Arn
+        Format: >-
+          {"requestId":"$context.requestId", "ip": "$context.identity.sourceIp",
+          "caller":"$context.identity.caller",
+          "user":"$context.identity.user","requestTime":"$context.requestTime",
+          "eventType":"$context.eventType","routeKey":"$context.routeKey",
+          "status":"$context.status","connectionId":"$context.connectionId"}
+      MethodSettings:
+        - MetricsEnabled: true
+          HttpMethod: "*"
+          LoggingLevel: "INFO"
+          ResourcePath: "/*"
+       
+  DataLoadSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Run the Data Load SFN at the specified intervals.
+      ScheduleExpression: 'cron(0 1 * * ? *)'
+      State: DISABLED
+      Targets:
+      - Id: DataLoadStateMachineTarget
+        Arn: !Ref DataLoadStateMachine
+        RoleArn: !GetAtt 
+          - StatesExecutionRole
+          - Arn

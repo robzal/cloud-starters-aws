@@ -1,6 +1,0 @@
-../six.py
-../__pycache__/six.cpython-36.pyc
-top_level.txt
-dependency_links.txt
-SOURCES.txt
-PKG-INFO
