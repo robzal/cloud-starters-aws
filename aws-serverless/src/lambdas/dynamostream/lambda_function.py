@@ -11,11 +11,12 @@ from User import User
 logger = Logger().logger
 config = Config().config
 
-class DynamodbStream(object):
+class DDBStream(object):
 
     def process(self, records: list) -> list:
 
         new_records = []
+        modified_records = []
 
         for record in records:
             if record['eventName'] not in ['INSERT', 'MODIFY']:
@@ -30,22 +31,19 @@ class DynamodbStream(object):
             if record['eventName'] == 'MODIFY':
                 logger.info('dynamodb stream MODIFY for {}'.format(new_record_key))
                 old_record_json = record['dynamodb']['OldImage']
-                continue
+                modified_records.append(new_record_json)
+            else:
+                logger.info('dynamodb stream INSERT for {}'.format(new_record_key))
+                new_records.append(new_record_json)
 
-            logger.info('dynamodb stream INSERT for {}'.format(new_record_key))
-
-            new_records.append({
-                'record': new_record_json
-            })
-
-        return new_records
+        return new_records, modified_records
 
 
 def lambda_handler(event, context):
     logger.info('stream event data')
     logger.info(event)
-    dynamodb_stream = DynamodbStream()
-    new_records = dynamodb_stream.process(event['Records'])
+    stream = DDBStream()
+    new_records, modified_records = stream.process(event['Records'])
 
     if new_records:
         logger.info('found {} records to be processed'.format(len(new_records)))
