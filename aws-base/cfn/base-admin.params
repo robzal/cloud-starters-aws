@@ -1,0 +1,5 @@
+AppCode=${APP_CODE}
+IdentityAccountID=${IDENTITY_ACCOUNT}
+DeploymentAccountIds=${DEPLOYMENT_ACCOUNTS}
+EnableKMSEncryption=${ENABLE_ADMIN_KMS_ENCRYPTION}
+PrimaryRegion=${PRIMARY_REGION}

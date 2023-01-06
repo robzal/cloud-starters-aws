@@ -1,0 +1,6 @@
+EnableCloudtrail=${ENABLE_CLOUDTRAIL}
+EnableConfig=${ENABLE_AWSCONFIG}
+EnableGuardDuty=${ENABLE_GUARD_DUTY}
+EnableKMSEncryption=${ENABLE_AUDIT_KMS_ENCRYPTION}
+PrimaryRegion=${PRIMARY_REGION}
+GuardDutyEmailSubsubscriptions=${GUARD_DUTY_ALERT_EMAIL}

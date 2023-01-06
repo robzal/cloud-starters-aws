@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Create DNS Domain and Matching Wildcard SSL certificate
+Parameters:
+  CreateR53Zone:
+    Description: Create or remove R53 Zone.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  R53DomainName:
+    Description: DNS Domain for Route 53 
+    Type: String 
+  R53VpcId:
+    Description: VpcId if making the Route 53 Zone a Private Zone
+    Type: String 
+    Default: ""
+  CreateSSLCert:
+    Description: Create or remove SSL Certificate.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  SSLDomainName:
+    Description: DNS Domain for SSL Cert in ACM
+    Type: String 
+  SSLDomainValidation:
+    Description: Domain Validation method for SSL Cert authorisation
+    Type: String 
+    Default: "DNS"
+    AllowedValues: [DNS, EMAIL]
+  SSLDomainValidationEmail:
+    Description: Domain to which validation email will be sent for SSL Cert authorisation
+    Type: String 
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources (all of these)
+    Type: String
+    Default: "ap-southeast-2"
+Conditions:
+  ShouldCreateR53Zone: !Equals
+    - 'true'
+    - !Ref CreateR53Zone 
+  ShouldCreateSSLCert: !Equals
+    - 'true'
+    - !Ref CreateSSLCert 
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsPrimaryAndCreateR53: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition ShouldCreateR53Zone
+  IsPrimaryAndCreateSSL: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition ShouldCreateSSLCert
+  PublicZone: !Equals 
+    - !Ref R53VpcId
+    - ""
+  DNSValidation: !Equals 
+    - !Ref SSLDomainValidation
+    - "DNS"
+  EMAILValidation: !Equals 
+    - !Ref SSLDomainValidation
+    - "EMAIL"
+
+Resources:
+  R53Domain: 
+    Type: AWS::Route53::HostedZone
+    Condition: IsPrimaryAndCreateR53
+    Properties: 
+      Name: !Ref R53DomainName
+      VPCs: 
+        - !If
+          - PublicZone
+          - !Ref "AWS::NoValue"        
+          - 
+            VPCId: !Ref R53VpcId
+            VPCRegion: !Sub ${AWS::Region}
+
+  SSLCertificate: 
+    Type: AWS::CertificateManager::Certificate 
+    Condition: IsPrimaryAndCreateSSL
+    Properties: 
+      DomainName: !Ref SSLDomainName
+      ValidationMethod: !Ref SSLDomainValidation
+      DomainValidationOptions:
+        - DomainName: !Ref SSLDomainName
+          HostedZoneId: !If [DNSValidation, !Ref R53DomainName, !Ref "AWS::NoValue"]
+          ValidationDomain: !If [EMAILValidation, !Ref SSLDomainValidationEmail, !Ref "AWS::NoValue"]
+
+Outputs:
+  R53Domain:
+    Condition: ShouldCreateR53Zone
+    Value: !Ref R53Domain
+    Export:
+      Name: !Sub 'R53Domain'
+  SSLCertificate:
+    Condition: ShouldCreateSSLCert
+    Value: !Ref SSLCertificate
+    Export:
+      Name: !Sub 'SSLCertificate'

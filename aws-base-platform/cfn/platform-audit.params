@@ -1,3 +1,0 @@
-EnableConfig=${ENABLE_AWSCONFIG}
-EnableGuardDuty=${ENABLE_GUARD_DUTY}
-GuardDutyEmailSubsubscriptions=${GUARD_DUTY_ALERT_EMAIL}

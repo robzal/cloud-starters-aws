@@ -1,0 +1,37 @@
+version: 0.2
+
+env:
+  variables:
+    BUILD_BUCKET: "238160719262-builds"
+    CLOUDFORMATION_BUCKET: "238160719262-cloudformation"
+    APP_CODE: "app code"
+    DEPLOYMENT_ROLE: "role arn"
+    ENVIRONMENT: "env"
+    PARAMS: ""
+  exported-variables:
+    - PARAMS 
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.7
+    commands:
+      # Install Git Client
+      - apt-get update
+      - apt-get install --assume-yes docker sudo
+      - pip3 uninstall --yes awscli
+      - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      - unzip awscliv2.zip
+      - sudo ./aws/install --update
+      - echo Configuring AWS CLI
+      - aws --version
+        
+  build:
+    commands:
+      - echo Deploying $APP_CODE stacks to $ENVIRONMENT Account using $DEPLOYMENT_ROLE
+      - ./deploy.sh $ENVIRONMENT default $DEPLOYMENT_ROLE
+
+  post_build:
+    commands:
+      - export PARAMS=Build-1234
+      - echo Deployment completed on `date`

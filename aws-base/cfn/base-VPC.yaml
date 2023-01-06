@@ -1,0 +1,436 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creates a VPC with optional NAT Gateway, VPC Peering"
+Parameters:
+  VPCName:
+    Description: The name of the VPC being created.
+    Type: String
+    Default: "MyVPC"
+  VPCCIDRBlock:
+    Description: The CIDR Range of the VPC.
+    Type: String
+    Default: "10.1.0.0/16"
+  CreateNATGW:
+    Description: Create NATGWs and Elastic IPs.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  CreateVPCPeering:
+    Description: Create VPC Peering Resources, IAM Role or VPC Connection.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  NetworkAccountId:
+    Description: AccountId of the Peering Hub Account.
+    Type: String
+    Default: "238160719262"
+  NetworkVpcId:
+    Description: AccountId of the Peering Hub Account.
+    Type: String
+    Default: "vpc-123456789012"
+  NetworkAccountCIDRBlock:
+    Description: The CIDR Range of the Peering Network VPC. Only needed if peering.
+    Type: String
+    Default: "10.0.0.0/16"
+  PeeringRoleName:
+    Description: Name of the Peering IAM Role to create in the Network Account.
+    Type: String
+    Default: "VPCPeeringRole"
+  PeeredAccountIds:
+    Description: CSV list of accounts to Allow to assume the Peering Role.
+    Type: CommaDelimitedList
+    Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: "ap-southeast-2"
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsNetworkAccount: !Equals 
+    - !Ref NetworkAccountId
+    - !Ref AWS::AccountId
+  IsNotNetworkAccount: !Not 
+    - !Equals 
+        - !Ref NetworkAccountId
+        - !Ref AWS::AccountId
+  ShouldCreateNATGW:
+    !Equals [true, !Ref CreateNATGW]
+  ShouldCreatePeering:
+    !Equals [true, !Ref CreateVPCPeering]
+  ShouldCreatePeeringRole: !And 
+    - !Condition IsPrimaryRegion
+    - !And
+      - !Condition ShouldCreatePeering
+      - !Condition IsNetworkAccount
+  ShouldCreatePeeringConnection: !And 
+    - !Condition IsPrimaryRegion
+    - !And
+      - !Condition ShouldCreatePeering
+      - !Condition IsNotNetworkAccount
+
+Resources:
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      EnableDnsSupport: "true"
+      EnableDnsHostnames: "true"
+      CidrBlock: !Sub '${VPCCIDRBlock}'
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}'
+  VPCFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      LogDestination: !Sub 'arn:aws:s3:::${AWS::AccountId}-logging'
+      LogDestinationType: s3
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+  PublicSubnetAZ1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}a'
+      CidrBlock: !Select [ 0, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        -
+          Key: "kubernetes.io/role/elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Public-A'
+  PublicSubnetAZ2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}b'
+      CidrBlock: !Select [ 1, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        -
+          Key: "kubernetes.io/role/elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Public-B'
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-IGW'
+  GatewayToInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      InternetGatewayId:
+        Ref: "InternetGateway"
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Public'
+  PublicRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: "GatewayToInternet"
+    Properties:
+      RouteTableId:
+        Ref: "PublicRouteTable"
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: "InternetGateway"
+  PublicSubnetRouteTableAssociation0:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PublicSubnetAZ1"
+      RouteTableId:
+        Ref: "PublicRouteTable"
+  PublicSubnetRouteTableAssociation1:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PublicSubnetAZ2"
+      RouteTableId:
+        Ref: "PublicRouteTable"
+  AdminPrefixList:
+    Type: AWS::EC2::PrefixList
+    Properties:
+      PrefixListName: !Sub '${VPCName}-AdminPrefixList'
+      AddressFamily: "IPv4"
+      MaxEntries: 20
+      Entries:
+        - Cidr: "1.2.3.4/32"
+          Description: "Allowed IP"
+      Tags:
+        - Key: "Name"
+          Value: !Sub '${VPCName}-AdminPrefixList'
+  AdminSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub '${VPCName}-AdminSG'
+      GroupDescription: Enable admin and local VPC access to the NAT device
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          SourcePrefixListId: !Ref AdminPrefixList
+        - IpProtocol: '-1'
+          CidrIp: !Ref VPCCIDRBlock
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  PrivateSubnetAZ1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}a'
+      CidrBlock: !Select [ 4, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      Tags:
+        -
+          Key: "kubernetes.io/role/internal-elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private-A'
+  PrivateSubnetAZ2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}b'
+      CidrBlock: !Select [ 5, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      Tags:
+        -
+          Key: "kubernetes.io/role/internal-elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private-B'
+  ElasticIPAZ1:
+    Type: "AWS::EC2::EIP"
+    Condition: ShouldCreateNATGW
+    Properties:
+      Domain: "vpc"
+  ElasticIPAZ2:
+    Type: "AWS::EC2::EIP"
+    Condition: ShouldCreateNATGW
+    Properties:
+      Domain: "vpc"
+  NATGatewayAZ1:
+    Type: "AWS::EC2::NatGateway"
+    Condition: ShouldCreateNATGW
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - "ElasticIPAZ1"
+          - "AllocationId"
+      SubnetId:
+        Ref: "PublicSubnetAZ1"
+  NATGatewayAZ2:
+    Type: "AWS::EC2::NatGateway"
+    Condition: ShouldCreateNATGW
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - "ElasticIPAZ2"
+          - "AllocationId"
+      SubnetId:
+        Ref: "PublicSubnetAZ2"
+  PrivateRouteTableAZ1:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private1'
+  PrivateRouteTableAZ2:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private2'
+  PrivateRouteToInternetAZ1:
+    Type: "AWS::EC2::Route"
+    Condition: ShouldCreateNATGW
+    Properties:
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ1"
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: "NATGatewayAZ1"
+  PrivateRouteToInternetAZ2:
+    Type: "AWS::EC2::Route"
+    Condition: ShouldCreateNATGW
+    Properties:
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ2"
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: "NATGatewayAZ2"
+  PrivateSubnetRouteTableAssociationAZ1:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PrivateSubnetAZ1"
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ1"
+  PrivateSubnetRouteTableAssociationAZ2:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PrivateSubnetAZ2"
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ2"
+
+  S3Gateway:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - 's3:*'
+            Resource:
+              - 'arn:aws:s3:::*/*'
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTableAZ1
+        - !Ref PrivateRouteTableAZ2
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcId: !Ref VPC
+  DDBGateway:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - 'dynamodb:*'
+            Resource:
+              - 'arn:aws:dynamodb:::*/*'
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTableAZ1
+        - !Ref PrivateRouteTableAZ2
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.dynamodb'
+      VpcId: !Ref VPC
+
+  # EC2Gateway:
+  #   Type: 'AWS::EC2::VPCEndpoint'
+  #   Properties:
+  #     VpcEndpointType: Interface
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
+  #     VpcId: !Ref VPC
+  #     SubnetIds:
+  #       - !Ref PrivateSubnetAZ1
+  #       - !Ref PrivateSubnetAZ2
+  #     SecurityGroupIds:
+  #       - !Ref AdminSecurityGroup
+
+  # For peering, the network account will create the peering role
+  # and other accounts will create a peering connection to it
+  # using the accountid, role ARN and its CIDR block as params
+
+  VPCPeeringRole:
+    Type: 'AWS::IAM::Role'
+    Condition: ShouldCreatePeeringRole
+    Properties:
+      RoleName: !Sub '${PeeringRoleName}'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Principal:
+              AWS: !Ref PeeredAccountIds
+            Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'ec2:AcceptVpcPeeringConnection'
+                Resource: '*'
+  VPCPeeringConnection:
+    Type: 'AWS::EC2::VPCPeeringConnection'
+    Condition: ShouldCreatePeeringConnection
+    Properties:
+      VpcId: !Ref VPC
+      PeerVpcId: !Ref NetworkVpcId
+      PeerOwnerId: !Ref NetworkAccountId
+      PeerRegion: !Ref PrimaryRegion
+      PeerRoleArn: !Sub 'arn:aws:iam::${NetworkAccountId}:role/${PeeringRoleName}'
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-SharedVPC'
+  PublicRouteToPeeredVPC:
+    Type: 'AWS::EC2::Route'
+    Condition: ShouldCreatePeeringConnection
+    Properties:
+      DestinationCidrBlock: !Ref NetworkAccountCIDRBlock
+      RouteTableId: !Ref PublicRouteTable
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+  PrivateRouteToPeeredVPC0:
+    Type: 'AWS::EC2::Route'
+    Condition: ShouldCreatePeeringConnection
+    Properties:
+      DestinationCidrBlock: !Ref NetworkAccountCIDRBlock
+      RouteTableId: !Ref PrivateRouteTableAZ1
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+  PrivateRouteToPeeredVPC1:
+    Type: 'AWS::EC2::Route'
+    Condition: ShouldCreatePeeringConnection
+    Properties:
+      DestinationCidrBlock: !Ref NetworkAccountCIDRBlock
+      RouteTableId: !Ref PrivateRouteTableAZ2
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+Outputs:
+  VPCId:
+    Description: "VPCId of VPC"
+    Value:
+      Ref: "VPC"
+  PublicSubnetAZ1:
+    Description: "SubnetId of public subnet AZ1"
+    Value:
+      Ref: "PublicSubnetAZ1"
+  PublicSubnetAZ2:
+    Description: "SubnetId of public subnet AZ2"
+    Value:
+      Ref: "PublicSubnetAZ2"
+  PrivateSubnetAZ1:
+    Description: "SubnetId of private subnet AZ1"
+    Value:
+      Ref: "PrivateSubnetAZ1"
+  PrivateSubnetAZ2:
+    Description: "SubnetId of private subnet AZ2"
+    Value:
+      Ref: "PrivateSubnetAZ2"
+  DefaultSecurityGroup:
+    Description: "DefaultSecurityGroup Id"
+    Value: !GetAtt VPC.DefaultSecurityGroup
+

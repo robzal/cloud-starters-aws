@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Creates IAM Roles for team members to assume with varying levels of access, and IAM Groups to manage the assume role rights if deploying this atack into the Admin Account itself
+Parameters:
+  OrgCode:
+    Description: Short Org Name used in resource naming prefixes 
+    Type: String 
+    Default: "Worx"
+  IdentityAccountID:
+    Description: Account ID for AWS Account with IAM Users
+    Type: String 
+    Default: "238160719262"
+  EnforceMFA:
+    Description: Requires Identities assuming roles to have MFA enabled
+    Type: String 
+    Default: "true"
+    AllowedValues:
+      - 'true'
+      - 'false'
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: "ap-southeast-2"
+
+Conditions:
+  IsIdentityAccount: !Equals 
+    - !Ref IdentityAccountID
+    - !Ref AWS::AccountId
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  ShouldEnforceMFA: !Equals 
+    - !Ref EnforceMFA
+    - "true"
+  IsPrimaryAndIdentityAccount: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition IsIdentityAccount
+
+Resources:
+  AdminsRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub '${OrgCode}AdminAccess'
+      ManagedPolicyArns: 
+        - !Ref AdminPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:root
+            Action: 'sts:AssumeRole'
+            Condition:
+              BoolIfExists: 
+                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
+  PowerUsersRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub '${OrgCode}PowerUserAccess'
+      ManagedPolicyArns: 
+        - !Ref PowerUserPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:root
+            Action: 'sts:AssumeRole'
+            Condition:
+              BoolIfExists: 
+                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
+  ReadOnlyRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub '${OrgCode}ReadOnlyAccess'
+      ManagedPolicyArns: 
+        - !Ref ReadOnlyPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:root
+            Action: 'sts:AssumeRole'
+            Condition:
+              BoolIfExists: 
+                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
+  BillingRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub '${OrgCode}BillingAccess'
+      ManagedPolicyArns: 
+        - !Ref BillingPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:root
+            Action: 'sts:AssumeRole'
+            Condition:
+              BoolIfExists: 
+                aws:MultiFactorAuthPresent: !If [ShouldEnforceMFA, "true", !Ref 'AWS::NoValue']
+
+  AdminPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: "Full Admin Access"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - '*'
+            Resource: '*'
+      ManagedPolicyName: !Sub '${OrgCode}AdminAccess'
+  PowerUserPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: "Full Access to Non Platform Resources and Full Read Only Access"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            NotAction:
+              - iam:*
+              - organizations:*
+              - account:*
+              - kms:*
+              - aws-portal:*
+              - budgets:*
+              - ce:*
+              - cur:*
+              - purchase-orders:*
+              # TODO acm *, r53 *, vpc
+              # TODO IAM Role and Role Create / Edit Policy only
+              # Not platform CFN stacks
+            Resource: '*'
+          - Effect: Allow
+            Action: '*'
+              # TODO read only action list
+              # - *:List*
+              # - Describe*
+              # - View*
+              # - Get*
+              # - BatchGet
+              # - Select
+            Resource: '*'
+      ManagedPolicyName: !Sub '${OrgCode}PowerUserAccess'
+  ReadOnlyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: Full Read Only Access"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: '*'
+              # TODO read only action list
+              # - List*
+              # - Describe*
+              # - View*
+              # - Get*
+              # - BatchGet
+              # - Select
+            Resource: '*'
+      ManagedPolicyName: !Sub '${OrgCode}ReadOnlyAccess'
+  BillingPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: "Full Access to Billing Console"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - aws-portal:*Billing
+              - aws-portal:*Usage
+              - aws-portal:*PaymentMethods
+              - budgets:ViewBudget
+              - budgets:ModifyBudget
+              - ce:UpdatePreferences
+              - ce:CreateReport
+              - ce:UpdateReport
+              - ce:DeleteReport
+              - ce:CreateNotificationSubscription
+              - ce:UpdateNotificationSubscription
+              - ce:DeleteNotificationSubscription
+              - cur:DescribeReportDefinitions
+              - cur:PutReportDefinition
+              - cur:ModifyReportDefinition
+              - cur:DeleteReportDefinition
+              - purchase-orders:*PurchaseOrders
+            Resource: '*'
+      ManagedPolicyName: !Sub '${OrgCode}BillingAccess'
+
+  AdminAssumePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      Description: "Admin Access Role Assume Policy for Group"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Resource: 
+              - !Sub 'arn:aws:iam::*:role/${OrgCode}AdminAccess'
+      ManagedPolicyName: !Sub 'GroupAssumePolicy-AdminAccess'
+  PowerUserAssumePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      Description: "PowerUser Access Role Assume Policy for Group"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Resource: 
+              - !Sub 'arn:aws:iam::*:role/${OrgCode}PowerUserAccess'
+      ManagedPolicyName: !Sub 'GroupAssumePolicy-PowerUserAccess'
+  ReadOnlyAssumePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      Description: "ReadOnly Access Role Assume Policy for Group"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Resource: 
+              - !Sub 'arn:aws:iam::*:role/${OrgCode}ReadOnlyAccess'
+      ManagedPolicyName: !Sub 'GroupAssumePolicy-ReadOnlyAccess'
+  BillingAssumePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      Description: "Billing Role Access Assume Policy for Group"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Resource: 
+              - !Sub 'arn:aws:iam::*:role/${OrgCode}BillingAccess'
+      ManagedPolicyName: !Sub 'GroupAssumePolicy-BillingAccess'
+
+  AdminGroup:
+    Type: 'AWS::IAM::Group'
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      GroupName: !Sub '${OrgCode}AdminAccessGroup'
+      ManagedPolicyArns: 
+        - !Ref AdminAssumePolicy
+      Path: /
+  PowerUserGroup:
+    Type: 'AWS::IAM::Group'
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      GroupName: !Sub '${OrgCode}PowerUserAccessGroup'
+      ManagedPolicyArns: 
+        - !Ref PowerUserAssumePolicy
+      Path: /
+  ReadOnlyGroup:
+    Type: 'AWS::IAM::Group'
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      GroupName: !Sub '${OrgCode}ReadOnlyAccessGroup'
+      ManagedPolicyArns: 
+        - !Ref ReadOnlyAssumePolicy
+      Path: /
+  BillingGroup:
+    Type: 'AWS::IAM::Group'
+    Condition: IsPrimaryAndIdentityAccount
+    Properties: 
+      GroupName: !Sub '${OrgCode}BillingAccessGroup'
+      ManagedPolicyArns: 
+        - !Ref BillingAssumePolicy
+      Path: /

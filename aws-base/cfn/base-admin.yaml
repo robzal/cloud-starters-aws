@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates basic admin S3 buckets and admin IAM role
+Parameters:
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  IdentityAccountID:
+    Description: AWS AccountNumber for trusted role asume
+    Type: String
+    Default: 238160719262
+  DeploymentAccountIds:
+    Description: AWS AccountNumbers for bucket access
+    Type: CommaDelimitedList
+    Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+  EnableKMSEncryption:
+    Description: Use a CMK KMS Key for bucket encryption (and allow cross account access)
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - 'true'
+      - 'false'
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources (all of these)
+    Type: String
+    Default: "ap-southeast-2"
+
+Conditions:
+  UseCMKKMS: !Equals 
+    - !Ref EnableKMSEncryption
+    - "true"
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsPrimaryAndUseKMS: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition UseCMKKMS
+
+Resources:
+  AdminPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: "Admin Access"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - '*'
+            Resource: '*'
+      ManagedPolicyName: !Sub 'PlatformAdmin'
+  AdminRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub 'PlatformAdmin'
+      ManagedPolicyArns: 
+        - !Ref AdminPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:root
+            Action: 'sts:AssumeRole'
+            Condition:
+              BoolIfExists: 
+                aws:MultiFactorAuthPresent: "true"
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${IdentityAccountID}:role/${AppCode}-CodePipeline-Role
+            Action: 'sts:AssumeRole'
+
+  AdminKMSKey:
+    Type: AWS::KMS::Key
+    Condition: IsPrimaryAndUseKMS
+    Properties:
+      Description: Used for Admin S3 buckets by Deployment Accounts to Encrypt/Decrypt code
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:*"
+            Resource: "*"
+          -
+            Sid: Allow use of the key by local identities if requested
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          -
+            Sid: Allow use of the key By cross account identities
+            Effect: Allow
+            Principal:
+              AWS: !Ref DeploymentAccountIds
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  AdminKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: IsPrimaryAndUseKMS
+    Properties:
+      AliasName: !Sub alias/admin-bucket-key
+      TargetKeyId: !Ref AdminKMSKey
+
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-logging'
+      AccessControl: 'LogDeliveryWrite'
+      BucketEncryption:
+        !If
+        - UseCMKKMS
+        - 
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID:  AdminKMSKey
+              SSEAlgorithm: 'aws:kms'
+        - !Ref "AWS::NoValue"
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 30
+  LoggingBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Condition: IsPrimaryRegion
+    Properties:
+      Bucket: !Ref LoggingBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: "delivery.logs.amazonaws.com"
+          Action: "s3:GetBucketAcl"
+          Resource: !Sub "arn:aws:s3:::${LoggingBucket}"
+        - Effect: Allow
+          Principal:
+            Service: "delivery.logs.amazonaws.com"
+          Action: "s3:PutObject"
+          Resource: !Sub "arn:aws:s3:::${LoggingBucket}/AWSLogs/${AWS::AccountId}/*"
+  CloudformationBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    DependsOn: [LoggingBucket]
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-cloudformation'
+      BucketEncryption:
+        !If
+        - UseCMKKMS
+        - 
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID:  AdminKMSKey
+              SSEAlgorithm: 'aws:kms'
+        - !Ref "AWS::NoValue"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+        LogFilePrefix: s3serveraccesslogs/cloudformation
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 7
+  CloudformationBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Bucket: !Ref CloudformationBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Cross Account access to Cloudformation bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${CloudformationBucket.Arn}/*'
+              - !Sub '${CloudformationBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Cross Account access to Cloudformation bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${CloudformationBucket.Arn}/*'
+              - !Sub '${CloudformationBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccountIds
+  DeploymentsBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    DependsOn: [LoggingBucket]
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-deployments'
+      BucketEncryption:
+        !If
+        - UseCMKKMS
+        - 
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID:  AdminKMSKey
+              SSEAlgorithm: 'aws:kms'
+        - !Ref "AWS::NoValue"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+        LogFilePrefix: s3serveraccesslogs/deployments
+  DeploymentsBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Bucket: !Ref DeploymentsBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Cross Account access to Deployments bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${DeploymentsBucket.Arn}/*'
+              - !Sub '${DeploymentsBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Cross Account access to Deployments bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${DeploymentsBucket.Arn}/*'
+              - !Sub '${DeploymentsBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccountIds
+
+Outputs:
+  LoggingBucket:
+    Condition: IsPrimaryRegion
+    Value: !Ref LoggingBucket
+    Export:
+      Name: !Sub 'LoggingBucket'
+  CloudformationBucket:
+    Condition: IsPrimaryRegion
+    Value: !Ref CloudformationBucket
+    Export:
+      Name: !Sub 'CloudformationBucket'
+  DeploymentsBucket:
+    Condition: IsPrimaryRegion
+    Value: !Ref DeploymentsBucket
+    Export:
+      Name: !Sub 'DeploymentsBucket'

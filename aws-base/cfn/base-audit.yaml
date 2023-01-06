@@ -1,0 +1,489 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Setup Basic Auditing and Security Services
+Parameters:
+  EnableCloudtrail:
+    Description: Bool value whether to enable Cloudtrail logging
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableConfig:
+    Description: Bool value whether to create and enable awsconfig resources (these incur some costs)
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableGuardDuty:
+    Description: Bool value whether to create and enable guard duty resources (these incur some costs)
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableKMSEncryption:
+    Description: Use a CMK KMS Key for bucket encryption
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - 'true'
+      - 'false'
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: "ap-southeast-2"
+  GuardDutyEmailSubsubscriptions:
+    Description: email address to send GuardDuty finding notifications to you
+    Type: String 
+    Default: guardduty@example.com
+
+Conditions:
+  ShouldEnableCloudtrail: !Equals 
+    - !Ref EnableCloudtrail
+    - 'true'
+  ShouldEnableConfig: !Equals 
+    - !Ref EnableConfig
+    - 'true'
+  ShouldEnableGuardDuty: !Equals 
+    - !Ref EnableGuardDuty
+    - 'true'
+  UseCMKKMS: !Equals 
+    - !Ref EnableKMSEncryption
+    - "true"
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsPrimaryAndUseKMS: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition UseCMKKMS
+  IsPrimaryAndEnableCloudtrail: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition ShouldEnableCloudtrail
+  IsPrimaryAndEnableConfig: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition ShouldEnableConfig
+  IsPrimaryAndEnableGuardDuty: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition ShouldEnableGuardDuty
+
+Resources:
+
+  # audit KMS
+  AuditKMSKey:
+    Type: AWS::KMS::Key
+    Condition: IsPrimaryAndUseKMS
+    Properties:
+      Description: Used by Assumed Roles in Dev/Prod accounts to Encrypt/Decrypt code
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:*"
+            Resource: "*"
+          -
+            Sid: Allow use of the key by cloudtrail service
+            Effect: Allow
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          -
+            Sid: Allow use of the key by config service
+            Effect: Allow
+            Principal:
+              Service: "config.amazonaws.com"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  AuditKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: IsPrimaryAndUseKMS
+    Properties:
+      AliasName: !Sub alias/audit-bucket-key
+      TargetKeyId: !Ref AuditKMSKey
+
+  # S3 buckets for auditing
+  CloudtrailBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-cloudtrail'
+      BucketEncryption:
+        !If
+        - UseCMKKMS
+        - 
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID:  AuditKMSKey
+              SSEAlgorithm: 'aws:kms'
+        - !Ref "AWS::NoValue"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+        LogFilePrefix: s3serveraccesslogs/cloudtrail
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 30
+  CloudTrailBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Condition: IsPrimaryRegion
+    Properties:
+      Bucket: !Ref CloudtrailBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: "cloudtrail.amazonaws.com"
+          Action: "s3:GetBucketAcl"
+          Resource: !Sub "arn:aws:s3:::${CloudtrailBucket}"
+        - Effect: Allow
+          Principal:
+            Service: "cloudtrail.amazonaws.com"
+          Action: "s3:PutObject"
+          Resource: !Sub "arn:aws:s3:::${CloudtrailBucket}/AWSLogs/${AWS::AccountId}/*"
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-awsconfig'
+      BucketEncryption:
+        !If
+        - UseCMKKMS
+        - 
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID:  AuditKMSKey
+              SSEAlgorithm: 'aws:kms'
+        - !Ref "AWS::NoValue"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+        LogFilePrefix: s3serveraccesslogs/config
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 30
+  ConfigBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Condition: IsPrimaryRegion
+    Properties:
+      Bucket: !Sub '${AWS::AccountId}-awsconfig'
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: "config.amazonaws.com"
+          Action: "s3:GetBucketAcl"
+          Resource: !Sub "arn:aws:s3:::${ConfigBucket}"
+        - Effect: Allow
+          Principal:
+            Service: "config.amazonaws.com"
+          Action: "s3:PutObject"
+          Resource: !Sub "arn:aws:s3:::${ConfigBucket}/AWSLogs/${AWS::AccountId}/*"
+
+  # Enable CloudTrail
+  CloudTrailIamRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: allow-access-to-cw-logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+  CloudTrailRoot:
+    Type: AWS::CloudTrail::Trail
+    Condition: ShouldEnableCloudtrail
+    DependsOn: [CloudTrailIamRole,CloudTrailLogGroup]
+    Properties: 
+      EnableLogFileValidation: true
+      EventSelectors: [{DataResources: [], IncludeManagementEvents: true, ReadWriteType: All}]
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+      S3BucketName: !Sub '${AWS::AccountId}-cloudtrail'
+      CloudWatchLogsLogGroupArn: !GetAtt [CloudTrailLogGroup, Arn] 
+      CloudWatchLogsRoleArn: !GetAtt [CloudTrailIamRole, Arn]
+      TrailName: !Sub 'cloudtrail-root-${AWS::AccountId}-${AWS::Region}' 
+  CloudTrailLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Condition: ShouldEnableCloudtrail
+    Properties:
+      LogGroupName: !Sub 'cloudtrail-root-${AWS::AccountId}-${AWS::Region}'
+      RetentioninDays: 30
+
+  # Enable AWS Config
+  ConfigIamRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWS_ConfigRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: allow-access-to-config-s3-bucket
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource:
+                  -  !Sub "arn:aws:s3:::${AWS::AccountId}-awsconfig/*"
+                Condition:
+                  StringLike:
+                    's3:x-amz-acl': bucket-owner-full-control
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:ListBucket'
+                Resource:
+                  -  !Sub "arn:aws:s3:::${AWS::AccountId}-awsconfig"
+              - !If 
+                - UseCMKKMS
+                - Effect: Allow
+                  Action:
+                    - kms:Encrypt
+                    - kms:Decrypt
+                    - kms:ReEncrypt*
+                    - kms:GenerateDataKey*
+                    - kms:DescribeKey
+                  Resource:
+                    - !Ref AuditKMSKey
+                - !Ref "AWS::NoValue"
+
+  ConfigRecorder:
+    Type: 'AWS::Config::ConfigurationRecorder'
+    Condition: ShouldEnableConfig
+    DependsOn: [ConfigIamRole]
+    Properties:
+      RoleARN:  !GetAtt [ConfigIamRole, Arn]
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: true
+  ConfigDeliveryChannel:
+    Type: 'AWS::Config::DeliveryChannel'
+    Condition: ShouldEnableConfig
+    Properties:
+      S3BucketName: !Sub '${AWS::AccountId}-awsconfig'
+      ConfigSnapshotDeliveryProperties: 
+        DeliveryFrequency: "One_Hour"
+  ConfigRuleEC2Public:
+    Type: 'AWS::Config::ConfigRule'
+    Condition: ShouldEnableConfig
+    DependsOn: [ConfigRecorder]
+    Properties:
+      ConfigRuleName: ec2-instance-no-public-ip
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::EC2::Instance'
+      Description: >-
+        A Config rule that checks whether Amazon Elastic Compute Cloud (Amazon
+        EC2) instances have a public IP association. The rule is NON_COMPLIANT
+        if the publicIp field is present in the Amazon EC2 instance
+        configuration item. This rule applies only to IPv4
+      Source:
+        Owner: AWS
+        SourceIdentifier: EC2_INSTANCE_NO_PUBLIC_IP
+  ConfigRuleCustomExample:
+    Type: AWS::Config::ConfigRule
+    Condition: ShouldEnableConfig
+    DependsOn: [ConfigCustomLambdaPermission, ConfigRecorder]
+    Properties:
+      ConfigRuleName: ConfigRuleCustomExample
+      Scope:
+        # ComplianceResourceId: !Ref 'Ec2Volume'
+        ComplianceResourceTypes: ['AWS::EC2::Volume']
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+        - EventSource: aws.config
+          MessageType: ConfigurationItemChangeNotification
+        SourceIdentifier: !GetAtt [ConfigCustomLambdaFunction, Arn]
+  ConfigCustomLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt [ConfigCustomLambdaFunction, Arn]
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+  ConfigCustomLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          var aws  = require('aws-sdk');
+          var config = new aws.ConfigService();
+          var ec2 = new aws.EC2();
+          exports.handler = function(event, context) {
+              compliance = evaluateCompliance(event, function(compliance, event) {
+                  var configurationItem = JSON.parse(event.invokingEvent).configurationItem;
+                  var putEvaluationsRequest = {
+                      Evaluations: [{
+                          ComplianceResourceType: configurationItem.resourceType,
+                          ComplianceResourceId: configurationItem.resourceId,
+                          ComplianceType: compliance,
+                          OrderingTimestamp: configurationItem.configurationItemCaptureTime
+                      }],
+                      ResultToken: event.resultToken
+                  };
+                  config.putEvaluations(putEvaluationsRequest, function(err, data) {
+                      if (err) context.fail(err);
+                      else context.succeed(data);
+                  });
+              });
+          };
+          function evaluateCompliance(event, doReturn) {
+              var configurationItem = JSON.parse(event.invokingEvent).configurationItem;
+              var status = configurationItem.configurationItemStatus;
+              if (configurationItem.resourceType !== 'AWS::EC2::Volume' || event.eventLeftScope || (status !== 'OK' && status !== 'ResourceDiscovered'))
+                  doReturn('NOT_APPLICABLE', event);
+              else ec2.describeVolumeAttribute({VolumeId: configurationItem.resourceId, Attribute: 'autoEnableIO'}, function(err, data) {
+                  if (err) context.fail(err);
+                  else if (data.AutoEnableIO.Value) doReturn('COMPLIANT', event);
+                  else doReturn('NON_COMPLIANT', event);
+              });
+          }
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Timeout: '60'
+      Role: !GetAtt [ConfigCustomLambdaExecutionRole, Arn]
+  ConfigCustomLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: ['logs:*', 'config:PutEvaluations', 'ec2:Describe*']
+            Resource: '*'
+
+  # Enable AWS GuardDuty and notify findings
+  GuardDuty:
+    Type: 'AWS::GuardDuty::Detector'
+    Condition: ShouldEnableGuardDuty
+    Properties:
+      Enable: !If [ShouldEnableGuardDuty, 'true', 'false']
+  GuardDutyEventRule:
+    Type: 'AWS::Events::Rule'
+    Condition: ShouldEnableGuardDuty
+    Properties:
+      Name: guardduty-detect-finding
+      Description: >-
+        A CloudWatch Event Rule that triggers on Amazon GuardDuty findings. The
+        Event Rule can be used to trigger notifications or remediative actions
+        using AWS Lambda.
+      State: ENABLED
+      Targets:
+        - Arn:
+            Ref: GuardDutySnsTopic
+          Id: target-id1
+      EventPattern:
+        detail-type:
+          - GuardDuty Finding
+        source:
+          - aws.guardduty
+  GuardDutySnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Condition: ShouldEnableGuardDuty
+    Properties:
+      Subscription:
+        - Endpoint: !Ref GuardDutyEmailSubsubscriptions
+          Protocol: email
+      TopicName: guardduty-event-notify
+  GuardDutySnsTopicPolicy:
+    Type: 'AWS::SNS::TopicPolicy'
+    Condition: ShouldEnableGuardDuty
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Sid: GuardDutySns
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Action:
+              - 'SNS:GetTopicAttributes'
+              - 'SNS:SetTopicAttributes'
+              - 'SNS:AddPermission'
+              - 'SNS:RemovePermission'
+              - 'SNS:DeleteTopic'
+              - 'SNS:Subscribe'
+              - 'SNS:ListSubscriptionsByTopic'
+              - 'SNS:Publish'
+              - 'SNS:Receive'
+            Resource:
+              Ref: GuardDutySnsTopic
+            Condition:
+              StringEquals:
+                'AWS:SourceOwner':
+                  Ref: 'AWS::AccountId'
+          - Sid: GuardDutySnsPublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sns:Publish'
+            Resource:
+              Ref: GuardDutySnsTopic
+      Topics:
+        - Ref: GuardDutySnsTopic
+
+Outputs:
+  CloudtrailBucket:
+    Condition: IsPrimaryRegion
+    Value: !Ref CloudtrailBucket
+    Export:
+      Name: !Sub 'Cloudtrail-bucket'
+  ConfigBucket:
+    Condition: IsPrimaryRegion
+    Value: !Ref ConfigBucket
+    Export:
+      Name: !Sub 'Config-bucket'

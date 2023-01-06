@@ -1,2 +1,0 @@
-DeploymentAccounts=${TRUSTED_ACCOUNTS}
-CreateRulesPipelinesPrereqs=${CREATE_RULES_PIPELINES_PREREQS}

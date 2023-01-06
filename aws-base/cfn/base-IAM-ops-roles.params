@@ -1,0 +1,4 @@
+OrgCode=${ORG_CODE}
+IdentityAccountID=${IDENTITY_ACCOUNT}
+EnforceMFA=${ENFORCE_MFA}
+PrimaryRegion=${PRIMARY_REGION}
