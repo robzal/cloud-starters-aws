@@ -1,0 +1,4 @@
+crhelper
+boto3
+argparse
+requests

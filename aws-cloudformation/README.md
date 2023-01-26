@@ -1,0 +1,5 @@
+# cloud-starters-aws
+
+This project demonstrates building and using a custom resource in cloudformation. This implementation of a custom resource wraps a standard lambda with a helper function which does the necessary cfn signalling. Source code for the custom resource lambda and another hello world lambda to use with it are included.
+
+This particular custom resource, file-uploader, might be useful for users who would like to share lambda code bundles publically via a CDN URL rather than directly from a bucket. A consumer of that shared code bundles can use the file downloader custom resource in their cloudformation templates to copy the code bundles(s) from a URL into a private bucket of their choice, and then use this local bucket copy of the code bundle(s) as the source for their lambda installation (remember lambda code bundles still have a requirement to be located in a bucket in the same region as the lambda installation)

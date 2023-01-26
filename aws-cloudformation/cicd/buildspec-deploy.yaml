@@ -4,8 +4,8 @@ env:
   variables:
     BUILD_BUCKET: "238160719262-builds"
     CLOUDFORMATION_BUCKET: "238160719262-cloudformation"
-    DEPLOYMENT_ROLE: ""
-    APP_CODE: ""
+    APP_CODE: "app code"
+    DEPLOYMENT_ROLE: "role arn"
     ENVIRONMENT: "env"
     PARAMS: ""
   exported-variables:
@@ -28,10 +28,10 @@ phases:
         
   build:
     commands:
-      - echo Running Build tasks for $APP_CODE 
-      - ./build.sh $ENVIRONMENT default $BUILD_ROLE
+      - echo Deploying $APP_CODE stacks to $ENVIRONMENT Account using $DEPLOYMENT_ROLE
+      - ./deploy.sh $ENVIRONMENT default $DEPLOYMENT_ROLE
 
   post_build:
     commands:
       - export PARAMS=Build-1234
-      - echo Build completed on `date`
+      - echo Deployment completed on `date`

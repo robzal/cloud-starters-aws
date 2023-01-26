@@ -1,0 +1,4 @@
+AppCode=${APP_CODE}
+DevOpsAccountID=${DEVOPS_ACCOUNT}
+DeploymentAccountIds=${DEPLOYMENT_ACCOUNTS}
+PrimaryRegion=${PRIMARY_REGION}

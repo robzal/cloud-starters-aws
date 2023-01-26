@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+   This Template Creates a Custom Cloudformation Resource used to copy needed lambda code files from a URL as part of local deployment.
+Parameters:
+  Environment:
+      Type: String
+      Default: dev
+      Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+  AppCode:
+      Type: String
+      Default: custom-resource-demo
+      Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+  FileDownloadBucket:
+      Type: String
+      Default: 238160719262-deployments
+      Description: Bucket Name for FileDownloader lambda code bundle.
+  FileDownloaderBucketKey:
+      Type: String
+      Default: file-downloader-1.0.0.zip
+      Description: Bucket Key for FileDownloader lambda code bundle.
+  DeploymentBucket:
+      Type: String
+      Default: 238160719262-deployments
+      Description: Local Private Bucket for lambda code bundles (downloaded from URL sources by FileDownloader).
+  DeploymentBucketPrefix:
+      Type: String
+      Default: custom-resource-demo
+      Description: Bucket Key Prefix for lambda code bundles (downloaded from URL sources by FileDownloader).
+  Function1SourceURL:
+    Type: String
+    Default: https://238160719262-deployments.s3.ap-southeast-2.amazonaws.com/function-1.0.0.zip 
+    Description: URL source for Function 1 code bundle.
+  Function1Filename:
+    Type: String
+    Default: function-1.0.0.zip
+    Description: Filename to save Function 1 code bundle as.
+  Function2SourceURL:
+    Type: String
+    Default: https://238160719262-deployments.s3.ap-southeast-2.amazonaws.com/function2-1.0.0.zip 
+    Description: URL source for Function 2 code bundle
+  Function2Filename:
+    Type: String
+    Default: function2-1.0.0.zip
+    Description: Filename to save Function 2 code bundle as.
+Resources:
+  FileDownloaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Sub "${AppCode}-${Environment}-Lambda-Role"
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Path: /
+  FileDownloaderFunction:
+    Type: AWS::Lambda::Function 
+    Properties:
+      Code:
+        S3Bucket: !Ref FileDownloadBucket
+        S3Key: !Ref FileDownloaderBucketKey
+      Role:
+        Fn::GetAtt:
+        - FileDownloaderRole
+        - Arn
+      Handler: lambda.handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 30
+      FunctionName: !Sub '${AppCode}-${Environment}-FileDownloader-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ENVIRONMENT: !Ref Environment
+  Lambda1Download:
+    Type: Custom::FileDownloaderFunction
+    DependsOn: FileDownloaderFunction
+    Properties:
+      ServiceToken: !GetAtt FileDownloaderFunction.Arn
+      SourceURL: !Sub '${Function1SourceURL}'
+      DestinationBucketName: !Sub '${DeploymentBucket}'
+      DestinationBucketKey: !Sub '${DeploymentBucketPrefix}/${Function1Filename}'
+  # returns Lambda1Download.UploadReference
+  Lambda1Function:
+    Type: AWS::Lambda::Function 
+    DependsOn: Lambda1Download
+    Properties:
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !GetAtt Lambda1Download.UploadReference
+      Role:
+        # I'm being lazy and reusing the downloader role for this demo. In practice, each lambda will have its own role
+        Fn::GetAtt:
+        - FileDownloaderRole
+        - Arn
+      Handler: lambda.handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 30
+      FunctionName: !Sub '${AppCode}-${Environment}-Lambda1-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ENVIRONMENT: !Ref Environment
+
+  Lambda2Download:
+    Type: Custom::FileDownloaderFunction
+    DependsOn: FileDownloaderFunction
+    Properties:
+      ServiceToken: !GetAtt FileDownloaderFunction.Arn
+      SourceURL: !Sub '${Function2SourceURL}'
+      DestinationBucketName: !Sub '${DeploymentBucket}'
+      DestinationBucketKey: !Sub '${DeploymentBucketPrefix}/${Function2Filename}'
+  # returns Lambda2Download.UploadReference
+  Lambda2Function:
+    Type: AWS::Lambda::Function 
+    DependsOn: Lambda2Download
+    Properties:
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: !GetAtt Lambda2Download.UploadReference
+      Role:
+        # I'm being lazy and reusing the downloader role for this demo. In practice, each lambda will have its own role
+        Fn::GetAtt:
+        - FileDownloaderRole
+        - Arn
+      Handler: lambda.handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 30
+      FunctionName: !Sub '${AppCode}-${Environment}-Lambda2-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ENVIRONMENT: !Ref Environment

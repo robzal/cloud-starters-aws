@@ -1,0 +1,435 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+   This Template Creates a simple CloudFront distribution which uses an S3 bucket as its origin, optionally creating that bucket or else just taking its name as a parameter. Note CloudFront distributions must be deployed in us-east-1
+Parameters:
+  AppCode:
+    Type: String
+    Default: cloudfront
+    Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+  Environment:
+    Type: String
+    Default: dev
+    Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+  CreateWAF:
+    Description: Whether to create a WebACL for the distribution.
+    Type: String
+    Default: "true"
+    AllowedValues: 
+      - "true"
+      - "false"
+  CustomDomain:
+    Description: Use a custom domain name with cloudfront You must also provide an Certifcate ARN to match the custom domain. 
+    Type: String
+    Default: ""
+  DomainCertificateArn:
+    Description: SSL/TLS certificate to match the custom domain
+    Type: String
+    Default: ""
+  CDNPriceClass:
+    Description: Price Tier relating to Global Distribution of this Cloudfront Distibution. PriceClass_100 is cheapest.
+    Type: String
+    Default: "PriceClass_100"
+    AllowedValues: 
+      - "PriceClass_100"
+      - "PriceClass_200"
+      - "PriceClass_All"
+  EnableLogging:
+    Description: Whether to enable access logging for the Distribution. You will also need to be provide the bucket name to log to.
+    Type: String
+    Default: "false"
+    AllowedValues: 
+      - "true"
+      - "false"
+  LoggingBucketName:
+    Description: Name of S3 Bucket that this Distribution will log access to (if selected).
+    Type: String
+    Default: "238160719262-logging.s3.amazonaws.com"
+  APIKeyValue:
+    Description: Predetermined value to use for API GW Key (if selected).
+    Type: String
+    Default: "123456789012345678901234567890"
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
+    Type: String
+    Default: "us-east-1"
+    AllowedValues: 
+      - "us-east-1"
+
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  CreateWAF: !Equals 
+    - !Ref CreateWAF
+    - "true"
+  UseCustomDomain: !Not
+    - !Equals 
+      - !Ref CustomDomain
+      - ""
+  EnableLogging: !Equals 
+    - !Ref EnableLogging
+    - "true"
+  IsPrimaryAndCreateWAF: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition CreateWAF
+  IsPrimaryAndUseCustomDomain: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition UseCustomDomain
+  IsPrimaryAndEnableLogging: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition EnableLogging
+
+Resources:
+  WAFWebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: IsPrimaryAndCreateWAF
+    Properties:
+      Name: !Sub ${AppCode}-${Environment}-CDN-WAF
+      Scope: CLOUDFRONT
+      Description: "Standard WebServer Ruleset"
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: OMK-WAF
+      Rules:
+        - Name: AWS-AWSManagedRulesCommonRuleSet # Amazon Core rule set - WCU: 700
+          Priority: 3
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesCommonRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules: []
+        - Name: AWS-AWSManagedRulesAmazonIpReputationList # Amazon IP reputation list Rule - WCU: 25
+          Priority: 2
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesAmazonIpReputationList
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+              ExcludedRules: []
+        - Name: AWS-AWSManagedRulesKnownBadInputsRuleSet # Amazon Known Bad Inputs - WCU: 200
+          Priority: 1
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesKnownBadInputsRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              ExcludedRules: []
+
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Condition: IsPrimaryRegion
+    Properties:
+      DistributionConfig:
+        Comment: Cloudfront Distribution fronting APIGW
+        Enabled: true
+        HttpVersion: 'http2'
+        WebACLId: 
+          !If
+            - IsPrimaryAndCreateWAF
+            - !GetAtt WAFWebACL.Arn
+            - !Ref "AWS::NoValue"
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - DELETE
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          Compress: True
+          CachedMethods: 
+            - GET
+            - HEAD
+          TargetOriginId: apigw-origin
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+            Headers:
+            - Access-Control-Request-Headers
+            - Access-Control-Request-Method
+            - Origin
+            - Authorization
+        IPV6Enabled: False
+        Origins:
+          - Id: apigw-origin
+            DomainName: !Sub '${APIGWRestApi}.execute-api.${AWS::Region}.amazonaws.com'
+            OriginPath: !Sub '/v1'
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+            OriginCustomHeaders:
+              - HeaderName: 'x-api-key'
+                HeaderValue: !Ref APIKeyValue          
+        PriceClass: !Ref CDNPriceClass
+        Aliases:
+          !If
+            - IsPrimaryAndUseCustomDomain
+            - 
+              - !Sub ${CustomDomain}
+            - !Ref "AWS::NoValue"
+        ViewerCertificate:
+          !If
+            - IsPrimaryAndUseCustomDomain
+            - 
+              AcmCertificateArn: !Ref DomainCertificateArn
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021
+            - 
+              CloudFrontDefaultCertificate: true
+        Logging:
+          !If
+            - IsPrimaryAndEnableLogging
+            - 
+              Bucket: !Ref LoggingBucketName
+              Prefix: !Sub CloudFront/APIGW/LambdaDemo
+              IncludeCookies: false
+            - !Ref "AWS::NoValue"
+
+  APIGWDemoFunctionRole:
+    Type: AWS::IAM::Role
+    Condition: IsPrimaryRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Sub "${AppCode}-${Environment}-APIGW-Demo-Lambda-Role"
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Path: /
+  APIGWDemoFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-APIGW-Demo-Lambda'
+  APIGWDemoFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: APIGWDemoFunctionLogGroup
+    Properties:
+      Code:
+        ZipFile: >
+          def handler(event, context):
+            print('hello from lambda')
+            response = {
+                          'isBase64Encoded': False,
+                          'statusCode': 200,
+                          'headers': {},
+                          'multiValueHeaders': {},
+                          'body': 'Hello, World!'
+                        }
+            return response
+      Handler: index.handler
+      Role: !GetAtt APIGWDemoFunctionRole.Arn
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 10
+      FunctionName: !Sub '${AppCode}-${Environment}-APIGW-Demo-Lambda'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ENVIRONMENT: !Ref Environment
+
+  APIGWCloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      RoleName: !Sub "${AppCode}-${Environment}-APIGW-Role"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+  APIGWExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      RoleName: !Sub "${AppCode}-${Environment}-APIGW-Execution-Role"
+      Path: /
+      Policies:
+        - PolicyName: LambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action: 'lambda:*'
+                Resource: !GetAtt APIGWDemoFunction.Arn
+  APIGWAccount:
+    Type: 'AWS::ApiGateway::Account'
+    Condition: IsPrimaryRegion
+    Properties:
+      CloudWatchRoleArn: !GetAtt APIGWCloudWatchRole.Arn 
+  APIGWLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Condition: IsPrimaryRegion
+    Properties:
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${AppCode}-${Environment}-APIGW-Demo'
+
+  APIGWRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Condition: IsPrimaryRegion
+    Properties:
+      ApiKeySourceType: HEADER
+      Description: An API Gateway with a Lambda Integration
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Name: !Sub '${AppCode}-${Environment}-APIGW-Demo-Lambda'
+  APIGWResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: IsPrimaryRegion
+    Properties:
+      ParentId: !GetAtt APIGWRestApi.RootResourceId
+      PathPart: 'lambda'
+      RestApiId: !Ref APIGWRestApi
+  APIGWMethod:
+    Condition: IsPrimaryRegion
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: true
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        ConnectionType: INTERNET
+        Credentials: !GetAtt APIGWExecutionRole.Arn
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_MATCH
+        TimeoutInMillis: 29000
+        Type: AWS_PROXY
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${APIGWDemoFunction.Arn}/invocations'
+      OperationName: 'lambda'
+      ResourceId: !Ref APIGWResource
+      RestApiId: !Ref APIGWRestApi
+  APIGWModel:
+    Condition: IsPrimaryRegion
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref APIGWRestApi
+      Schema: {}
+  APIGWStage:
+    Type: AWS::ApiGateway::Stage
+    Condition: IsPrimaryRegion
+    Properties:
+      DeploymentId: !Ref APIGWDeployment
+      Description: APIGW Demo Function Stage v1
+      RestApiId: !Ref APIGWRestApi
+      StageName: 'v1'
+      AccessLogSetting:
+        DestinationArn: !GetAtt APIGWLogGroup.Arn
+        Format: >-
+          {"requestId":"$context.requestId", "ip": "$context.identity.sourceIp",
+          "caller":"$context.identity.caller",
+          "user":"$context.identity.user","requestTime":"$context.requestTime",
+          "eventType":"$context.eventType","routeKey":"$context.routeKey",
+          "status":"$context.status","connectionId":"$context.connectionId"}
+  APIGWDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Condition: IsPrimaryRegion
+    DependsOn: APIGWMethod
+    Properties:
+      Description: Lambda API Deployment
+      RestApiId: !Ref APIGWRestApi
+
+  APIGWUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Condition: IsPrimaryRegion
+    DependsOn: APIGWRestApi
+    Properties:
+      ApiStages:
+      - ApiId:
+          Ref: APIGWRestApi
+        Stage:
+          Ref: APIGWStage
+      Description: Usage plan for this API
+      Throttle:
+        BurstLimit: 200
+        RateLimit: 100
+  APIGWApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Condition: IsPrimaryRegion
+    DependsOn: APIGWUsagePlan
+    Properties:
+      Enabled: true
+      Name: API Key for Lambda Demo APIGW
+      Value: !Ref APIKeyValue
+      # StageKeys:
+      # - RestApiId:
+      #     Ref: APIGWRestApi
+      #   StageName:
+      #     Ref: APIGWStage
+  APIGWUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Condition: IsPrimaryRegion
+    DependsOn: APIGWApiKey
+    Properties:
+      KeyId:
+        Ref: APIGWApiKey
+      KeyType: API_KEY
+      UsagePlanId:
+        Ref: APIGWUsagePlan
+
+Outputs:
+  APIGWUrl:
+    Condition: IsPrimaryRegion
+    Value: !Sub 'https://${APIGWRestApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-apigw-url"
+  CloudFrontDistribution:
+    Condition: IsPrimaryRegion
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-id"
+  CloudFrontDistributionUrl:
+    Condition: IsPrimaryRegion
+    Value: 
+      !If
+        - IsPrimaryAndUseCustomDomain
+        - !Sub "https://${CustomDomain}"
+        - !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-url"
+  CloudFrontWAF:
+    Condition: IsPrimaryAndCreateWAF
+    Value: !Ref WAFWebACL
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-waf"

@@ -6,7 +6,9 @@
 load_env () {
     LOCAL_FILE=./.env
     COMMON_FILE=./config/.env._common
+    COMMON_REGIONAL_FILE=./config/.env._common.$2
     ENV_FILE=./config/.env.$1
+    ENV_REGIONAL_FILE=./config/.env.$1.$2
 
     if [ -f "$LOCAL_FILE" ]; then
         echo "Local $LOCAL_FILE exists. Loading.";
@@ -17,9 +19,19 @@ load_env () {
             . $COMMON_FILE
         fi
 
+        if [ -f "$COMMON_REGIONAL_FILE" ]; then
+            echo "$COMMON_REGIONAL_FILE exists. Loading.";
+            . $COMMON_REGIONAL_FILE
+        fi
+
         if [ -f "$ENV_FILE" ]; then
             echo "$ENV_FILE exists. Loading.";
             . $ENV_FILE
+        fi
+
+        if [ -f "$ENV_REGIONAL_FILE" ]; then
+            echo "$ENV_REGIONAL_FILE exists. Loading.";
+            . $ENV_REGIONAL_FILE
         fi
     fi
 }
@@ -64,10 +76,16 @@ set_aws_creds () {
     fi
 }
 
-load_env $1
 
 set_aws_creds $1 $2 $3
 
-# Pipeline itself deployed to primary region
 # PRIMARY_REGION
-deploy_stack ${APP_CODE}-pipeline ${PRIMARY_REGION} cicd/pipeline.yaml cicd/pipeline.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+load_env $1 $PRIMARY_REGION
+deploy_stack ${APP_CODE}-custom-resource ${PRIMARY_REGION} cfn/custom-resource.yaml cfn/custom-resource.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+
+# SECONDARY_REGIONS
+for r in ${SECONDARY_REGIONS//,/ }
+do
+    load_env $1 $r
+    deploy_stack ${APP_CODE}-custom-resource  ${r} cfn/custom-resource.yaml cfn/custom-resource.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+done

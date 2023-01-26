@@ -1,0 +1,266 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+   This Template Creates a simple CloudFront distribution which uses an S3 bucket as its origin, optionally creating that bucket or else just taking its name as a parameter. Note CloudFront distributions must be deployed in us-east-1
+Parameters:
+  AppCode:
+    Type: String
+    Default: cloudfront
+    Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+  Environment:
+    Type: String
+    Default: dev
+    Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+  OriginBucketName:
+    Description: Name of S3 Bucket that this Distribution will use as its Origin.
+    Type: String
+    Default: "238160719262-web-content"
+  CreateWAF:
+    Description: Whether to create a WebACL for the distribution.
+    Type: String
+    Default: "true"
+    AllowedValues: 
+      - "true"
+      - "false"
+  CustomDomain:
+    Description: Use a custom domain name with cloudfront You must also provide an Certifcate ARN to match the custom domain. 
+    Type: String
+    Default: ""
+  DomainCertificateArn:
+    Description: SSL/TLS certificate to match the custom domain
+    Type: String
+    Default: ""
+  CDNPriceClass:
+    Description: Price Tier relating to Global Distribution of this Cloudfront Distibution. PriceClass_100 is cheapest.
+    Type: String
+    Default: "PriceClass_100"
+    AllowedValues: 
+      - "PriceClass_100"
+      - "PriceClass_200"
+      - "PriceClass_All"
+  EnableLogging:
+    Description: Whether to enable access logging for the Distribution. You will also need to be provide the bucket name to log to.
+    Type: String
+    Default: "false"
+    AllowedValues: 
+      - "true"
+      - "false"
+  LoggingBucketName:
+    Description: Name of S3 Bucket that this Distribution will log access to (if selected).
+    Type: String
+    Default: "238160719262-logging.s3.amazonaws.com"
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
+    Type: String
+    Default: "us-east-1"
+    AllowedValues: 
+      - "us-east-1"
+
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  CreateWAF: !Equals 
+    - !Ref CreateWAF
+    - "true"
+  UseCustomDomain: !Not
+    - !Equals 
+      - !Ref CustomDomain
+      - ""
+  EnableLogging: !Equals 
+    - !Ref EnableLogging
+    - "true"
+  IsPrimaryAndCreateWAF: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition CreateWAF
+  IsPrimaryAndUseCustomDomain: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition UseCustomDomain
+  IsPrimaryAndEnableLogging: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition EnableLogging
+
+Resources:
+  CDNContentBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryRegion
+    Properties:
+      BucketName: !Sub '${OriginBucketName}'
+  CDNContentBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Bucket: !Ref CDNContentBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Origin access to Content bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${CDNContentBucket.Arn}/*'
+              - !Sub '${CDNContentBucket.Arn}'
+            Principal: 
+              Service:
+                - "cloudfront.amazonaws.com"
+            # Condition:
+            #   StringEquals:
+            #     'AWS:SourceArn': !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
+
+  WAFWebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: IsPrimaryAndCreateWAF
+    Properties:
+      Name: !Sub ${AppCode}-${Environment}-CDN-WAF
+      Scope: CLOUDFRONT
+      Description: "Standard WebServer Ruleset"
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: OMK-WAF
+      Rules:
+        - Name: AWS-AWSManagedRulesCommonRuleSet # Amazon Core rule set - WCU: 700
+          Priority: 3
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesCommonRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules: []
+        - Name: AWS-AWSManagedRulesAmazonIpReputationList # Amazon IP reputation list Rule - WCU: 25
+          Priority: 2
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesAmazonIpReputationList
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+              ExcludedRules: []
+        - Name: AWS-AWSManagedRulesKnownBadInputsRuleSet # Amazon Known Bad Inputs - WCU: 200
+          Priority: 1
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWS-AWSManagedRulesKnownBadInputsRuleSet
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              ExcludedRules: []
+
+  OriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: IsPrimaryRegion
+    Properties: 
+      OriginAccessControlConfig: 
+          Description: !Sub 'Origin access control for ${OriginBucketName} S3 bucket'
+          Name: S3BucketOriginAccess
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Condition: IsPrimaryRegion
+    DependsOn: CDNContentBucket
+    Properties:
+      DistributionConfig:
+        Comment: Cloudfront Distribution fronting S3 bucket
+        Enabled: true
+        HttpVersion: 'http2'
+        WebACLId: 
+          !If
+            - IsPrimaryAndCreateWAF
+            - !GetAtt WAFWebACL.Arn
+            - !Ref "AWS::NoValue"
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - DELETE
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          Compress: True
+          CachedMethods: 
+            - GET
+            - HEAD
+          TargetOriginId: s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+            # Headers:
+            #   - '*'
+        IPV6Enabled: False
+        Origins:
+          - Id: s3-origin
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt OriginAccess.Id
+            DomainName: !Sub "${OriginBucketName}.s3.amazonaws.com"
+        PriceClass: !Ref CDNPriceClass
+        Aliases:
+          !If
+            - IsPrimaryAndUseCustomDomain
+            - 
+              - !Sub ${CustomDomain}
+            - !Ref "AWS::NoValue"
+        ViewerCertificate:
+          !If
+            - IsPrimaryAndUseCustomDomain
+            - 
+              AcmCertificateArn: !Ref DomainCertificateArn
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021
+            - 
+              CloudFrontDefaultCertificate: true
+        Logging:
+          !If
+            - IsPrimaryAndEnableLogging
+            - 
+              Bucket: !Ref LoggingBucketName
+              Prefix: !Sub CloudFrontLogs/S3-${OriginBucketName}
+              IncludeCookies: false
+            - !Ref "AWS::NoValue"
+
+Outputs:
+  CloudFrontOriginAccess:
+    Condition: IsPrimaryRegion
+    Value: !Ref OriginAccess
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-access-id"
+  CloudFrontDistribution:
+    Condition: IsPrimaryRegion
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-id"
+  CloudFrontDistributionUrl:
+    Condition: IsPrimaryRegion
+    Value: 
+      !If
+        - IsPrimaryAndUseCustomDomain
+        - !Sub "https://${CustomDomain}"
+        - !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-url"
+  CloudFrontWAF:
+    Condition: IsPrimaryAndCreateWAF
+    Value: !Ref WAFWebACL
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-cdn-waf"

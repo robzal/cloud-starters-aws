@@ -1,0 +1,10 @@
+Environment=${ENVIRONMENT}
+AppCode=${APP_CODE}
+FileDownloadBucket=${FILE_DOWNLOADER_BUCKET}
+FileDownloaderBucketKey=${FILE_DOWNLOADER_KEY}
+DeploymentBucket=${DEPLOYMENT_BUCKET}
+DeploymentBucketPrefix=${DEPLOYMENT_BUCKET_PREFIX}
+Function1SourceURL=${FUNCTION1_SOURCE_URL}
+Function1Filename=${FUNCTION1_FILENAME}
+Function2SourceURL=${FUNCTION2_SOURCE_URL}
+Function2Filename=${FUNCTION2_FILENAME}
