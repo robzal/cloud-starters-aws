@@ -60,6 +60,10 @@ Resources:
         - !Sub "arn:aws:iam::aws:policy/AmazonS3FullAccess"
         - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Path: /
+  FileDownloaderFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-FileDownloader-Function'
   FileDownloaderFunction:
     Type: AWS::Lambda::Function 
     Properties:
@@ -79,6 +83,8 @@ Resources:
         Variables:
           APP_CODE: !Ref AppCode
           ENVIRONMENT: !Ref Environment
+
+  # returns Lambda1Download.UploadReference used to create LambdaFunction1
   Lambda1Download:
     Type: Custom::FileDownloaderFunction
     DependsOn: FileDownloaderFunction
@@ -87,7 +93,10 @@ Resources:
       SourceURL: !Sub '${Function1SourceURL}'
       DestinationBucketName: !Sub '${DeploymentBucket}'
       DestinationBucketKey: !Sub '${DeploymentBucketPrefix}/${Function1Filename}'
-  # returns Lambda1Download.UploadReference
+  Lambda1FunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Lambda1-Function'
   Lambda1Function:
     Type: AWS::Lambda::Function 
     DependsOn: Lambda1Download
@@ -110,6 +119,7 @@ Resources:
           APP_CODE: !Ref AppCode
           ENVIRONMENT: !Ref Environment
 
+  # returns Lambda2Download.UploadReference used to create LambdaFunction2
   Lambda2Download:
     Type: Custom::FileDownloaderFunction
     DependsOn: FileDownloaderFunction
@@ -118,7 +128,10 @@ Resources:
       SourceURL: !Sub '${Function2SourceURL}'
       DestinationBucketName: !Sub '${DeploymentBucket}'
       DestinationBucketKey: !Sub '${DeploymentBucketPrefix}/${Function2Filename}'
-  # returns Lambda2Download.UploadReference
+  Lambda2FunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Lambda2-Function'
   Lambda2Function:
     Type: AWS::Lambda::Function 
     DependsOn: Lambda2Download

@@ -88,7 +88,7 @@ Parameters:
       Description: Name of the code file for the Next Pipeline Check Lambda
     CodeBuildImage:
         Type: String
-        Default: "aws/codebuild/standard:5.0"
+        Default: "aws/codebuild/standard:7.0"
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String

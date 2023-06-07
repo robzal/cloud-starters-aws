@@ -44,7 +44,7 @@ Parameters:
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String
-      Default: "BUILD_GENERAL1_MEDIUM"
+      Default: "BUILD_GENERAL1_SMALL"
       Description: Container Size to use for the CodeBuild container
     VPCID:
       Type: String

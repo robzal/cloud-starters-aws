@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# >>> Inputs
+Parameters:
+  AppCode:
+    Type: String
+    Default: cloudfront
+    Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+  Environment:
+    Type: String
+    Default: dev
+    Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
+  CognitoDomain:
+    Type: String
+    Default: demo-auth-2023
+    Description: Cognito Hosted UI Prefix.
+  CognitoUserName:
+    Type: String
+    Default: cognitouser
+    Description: Enter Cognito username.
+  LambdaBucket:
+    Type: String
+    Default: 238160719262-deployments
+    Description: Lambda code bundle bucket.
+  ApiAuthoriserBundleKey:
+    Type: String
+    Default: api-auth-1.0.0.zip
+    Description: Custom Api Authorizer code bundle s3 key.
+  DemoApiBundleKey:
+    Type: String
+    Default: demo-api-1.0.0.zip
+    Description: Api Demo App code bundle s3 key.
+  DeploymentStage:
+    Type: String
+    Default: v1
+    Description: APIGW stage name.
+
+Resources:
+# >>> Amazon Cognito
+  CognitoUserPool:
+    Type: 'AWS::Cognito::UserPool'
+    Properties:
+      UserPoolName: !Sub ${AppCode}-${Environment}-UserPool
+  CognitoUserPoolDomain:
+    Type: 'AWS::Cognito::UserPoolDomain'
+    Properties:
+      # using client id will make the domain unique
+      Domain: !Ref CognitoDomain
+      UserPoolId: !Ref CognitoUserPool
+    DependsOn:
+      - CognitoUserPoolClient
+  CognitoUserPoolClient:
+    Type: 'AWS::Cognito::UserPoolClient'
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      AllowedOAuthFlows:
+        - implicit
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+      CallbackURLs:
+        - 'http://localhost'
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      SupportedIdentityProviders:
+        - COGNITO
+    DependsOn:
+      - CognitoUserPool
+  CognitoUserPoolGroup:
+    Type: 'AWS::Cognito::UserPoolGroup'
+    Properties:
+      GroupName: demo-group
+      UserPoolId: !Ref CognitoUserPool
+    DependsOn:
+      - CognitoUserPool
+  # CognitoUser:
+  #   Type: 'AWS::Cognito::UserPoolUser'
+  #   Properties:
+  #     Username: !Ref CognitoUserName
+  #     UserPoolId: !Ref CognitoUserPool
+  #     DesiredDeliveryMediums:
+  #       - EMAIL
+  #   DependsOn:
+  #     - CognitoUserPool
+  # CognitoUserPoolUserToGroupAttachment:
+  #   Type: 'AWS::Cognito::UserPoolUserToGroupAttachment'
+  #   Properties:
+  #     GroupName: !Ref CognitoUserPoolGroup
+  #     Username: !Ref CognitoUserName
+  #     UserPoolId: !Ref CognitoUserPool
+  #   DependsOn:
+  #     - CognitoUserPoolGroup
+  #     - CognitoUser
+# <<< Amazon Cognito
+# >>> Api Service
+  DemoApiIAMPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      Roles:
+        - !Ref DemoApiIAMRole
+      PolicyName: !Sub ${AppCode}-${Environment}-Demo-API-Policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - cognito-idp:Admin*
+            Resource: !GetAtt CognitoUserPool.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/DemoApiLambdaFunction:*
+  DemoApiIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub ${AppCode}-${Environment}-Demo-API-Role
+      AssumeRolePolicyDocument: |-
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Effect": "Allow",
+              "Sid": ""
+            }
+          ]
+        }
+  DemoApiLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub ${AppCode}-${Environment}-Demo-API-Function
+      Runtime: "python3.9"
+      Handler: "lambda.handler"
+      Role: !GetAtt DemoApiIAMRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref DemoApiBundleKey
+  DemoApiLambdaFunctionPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt DemoApiLambdaFunction.Arn
+      Principal: "apigateway.amazonaws.com"
+# <<< Api Service
+# >>> Amazon Api gateway
+  ApiGatewayRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: !Sub ${AppCode}-${Environment}-ApiGateway
+  ApiGatewayLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${ApiGatewayRestApi}/${DeploymentStage}'
+      RetentionInDays: 14
+  ApiGatewayResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: "{api+}"
+  ApiGatewayMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      HttpMethod: "ANY"
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ApiGatewayRestApi
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiGatewayAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: "POST"
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DemoApiLambdaFunction.Arn}/invocations
+    DependsOn: ApiGatewayAuthorizer
+  ApiGatewayDeploymentProtected:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: !Sub ${DeploymentStage}
+      Description: demo api deployment
+      StageDescription:
+        LoggingLevel: INFO
+    DependsOn:
+      - ApiGatewayAuthorizer
+      - ApiGatewayMethod
+# <<< Amazon Api gateway
+# >>> Api Gateway authorizer
+  ApiAuthorizerLambdaIAMPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      Roles:
+        - !Ref ApiAuthorizerIAMRole
+      PolicyName: ApiAuthorizerLambdaIAMPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - cognito-idp:*
+            Resource: !GetAtt CognitoUserPool.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/ApiAuthorizerLambdaFunction:*
+  ApiAuthorizerLambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ApiAuthorizerLambdaIAMRole
+      AssumeRolePolicyDocument: |-
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Effect": "Allow",
+              "Sid": ""
+            }
+          ]
+        }
+  ApiAuthorizerLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: ApiAuthorizerLambdaFunction
+      Runtime: "python3.9"
+      Handler: "lambda.handler"
+      Role: !GetAtt ApiAuthorizerLambdaIAMRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref ApiAuthoriserBundleKey
+      Environment:
+        Variables:
+          TABLE_NAME: "auth-policy-store"
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+          COGNITO_APP_CLIENT_ID: !Ref CognitoUserPoolClient
+  ApiAuthorizerIAMPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: ApiAuthorizerIAMPolicy
+      Roles:
+        - !Ref ApiAuthorizerIAMRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'lambda:InvokeFunction'
+            Resource: !GetAtt ApiAuthorizerLambdaFunction.Arn
+  ApiAuthorizerIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ApiAuthorizerIAMRole
+      AssumeRolePolicyDocument: |-
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Principal": {
+                "Service": "apigateway.amazonaws.com"
+              },
+              "Effect": "Allow",
+              "Sid": ""
+            }
+          ]
+        }
+  ApiGatewayAuthorizer:
+    Type: 'AWS::ApiGateway::Authorizer'
+    Properties:
+      Name: custom-auth
+      RestApiId: !Ref ApiGatewayRestApi
+      Type: REQUEST
+      IdentitySource: method.request.header.Authorization
+      AuthorizerResultTtlInSeconds: '300'
+      AuthorizerCredentials: !GetAtt ApiAuthorizerIAMRole.Arn
+      AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiAuthorizerLambdaFunction.Arn}/invocations
+# <<< Api Gateway authorizer
+# >>> Api gateway Account
+  ApiGWCloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      RoleName: !Sub "ApiGW-Logging-Role"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonApiGatewayPushToCloudWatchLogs
+  ApiGWAccount:
+    Type: 'AWS::ApiGateway::Account'
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGWCloudWatchRole.Arn 
+# <<< Api gateway Account
+
+# >>> Outputs
+Outputs:
+  CognitoUserPoolClientId:
+    Value: !Ref CognitoUserPoolClient
+  CognitoHostedUiUrl:
+    Value: !Sub https://${CognitoUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${CognitoUserPoolClient}&response_type=token&scope=email+openid&redirect_uri=http://localhost
+  ApiGatewayDeploymentUrlApiEndpoint:
+    Value: !Sub https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${DeploymentStage}/petstore/v1/pets

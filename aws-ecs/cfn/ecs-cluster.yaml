@@ -32,7 +32,7 @@ Parameters:
         Description: Instance AMI for the ECS Cluster (Non Fargate)
         Type: String
         # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
-        Default: ami-0a53f55dfbc2fe407
+        Default: ami-0dd1294c5a7395c06
     ECSLinuxInstanceKey:
         Type: AWS::EC2::KeyPair::KeyName
         Default: AWS-robzal
@@ -49,7 +49,7 @@ Parameters:
         Description: Instance AMI for the ECS Cluster (Non Fargate)
         Type: String
         # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_windows_AMI.html
-        Default: ami-0a358cdbb6d90dbbd
+        Default: ami-080a00e50f37316a3
     ECSWindowsInstanceKey:
         Type: AWS::EC2::KeyPair::KeyName
         Default: AWS-robzal
@@ -57,15 +57,15 @@ Parameters:
     ECSClusterSecGroups:
         Description: Instance type for the ECS Cluster
         Type: CommaDelimitedList
-        Default: sg-0f91af3db8e19143c
+        Default: sg-03cde45439be13a3b
     ECSClusterSubnet1:
         Description: Subnet ID 1 for Cluster
         Type: String
-        Default: subnet-0f95dfdd34cb4c53c
+        Default: subnet-0650a76442c640904
     ECSClusterSubnet2:
         Description: Subnet ID 2 for Cluster
         Type: String
-        Default: subnet-06e59c5cc754e109b
+        Default: subnet-0009a4a8e07242139
 
     ECRTrustedAccounts:
         Type: CommaDelimitedList

@@ -10,10 +10,10 @@ Parameters:
         Type: String
         Default: 238160719262-pipelines
         Description: Name of S3 bucket for CodePipeline to use
-    PipelineBucketKMSKeyARN:
+    PipelineBucketKMSKeyAliasARN:
         Type: String
-        Default: arn:aws:kms:ap-southeast-2:238160719262:key/db041cc6-935a-4b34-a539-d5c3ea6669ec
-        Description: ARN of KMS key used for S3 pipeline bucket encryption
+        Default: arn:aws:kms:ap-southeast-2:238160719262:alias/devops-bucket-key
+        Description: ARN of KMS key alias used for codepipeline S3 bucket encryption
     CloudformationBucket:
         Type: String
         Default: 238160719262-cloudformation
@@ -56,22 +56,32 @@ Parameters:
         Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
     CodeBuildImage:
         Type: String
-        Default: "aws/codebuild/standard:5.0"
+        Default: "aws/codebuild/standard:7.0"
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String
-      Default: "BUILD_GENERAL1_MEDIUM"
-      Description: Container Size to use for the CodeBuild container
+      Default: "BUILD_GENERAL1_SMALL"
+      Description: Compute Size to use for the CodeBuild container
+    CodeBuildType:
+      Type: String
+      Default: "LINUX_CONTAINER"
+      Description: Compute Architecture to use for the CodeBuild container
 Resources:
+    BuildProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-build-project'
+        RetentionInDays: 14
     BuildProject:
         Type: AWS::CodeBuild::Project
+        DependsOn: BuildProjectLogGroup
         Properties:
             Name: !Sub ${AppCode}-build-project
-            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
             Environment: 
-                Type: LINUX_CONTAINER
+                Type: !Ref CodeBuildType
                 ComputeType: !Ref CodeBuildCompute
                 Image: !Ref CodeBuildImage
                 PrivilegedMode: true
@@ -84,15 +94,21 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec.yaml
+    DeployProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-deploy-project'
+        RetentionInDays: 14
     DeployProject:
         Type: AWS::CodeBuild::Project
+        DependsOn: DeployProjectLogGroup
         Properties:
             Name: !Sub ${AppCode}-deploy-project
-            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
             Environment: 
-                Type: LINUX_CONTAINER
+                Type: !Ref CodeBuildType
                 ComputeType: !Ref CodeBuildCompute
                 Image: !Ref CodeBuildImage
                 PrivilegedMode: true
@@ -153,11 +169,6 @@ Resources:
                 - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-deploy-project'
             - Effect: Allow
               Action:
-                - 'kms:*'
-              Resource: 
-                - !Ref PipelineBucketKMSKeyARN
-            - Effect: Allow
-              Action:
                 - sts:AssumeRole
               Resource: 
                 - !Ref BuildRoleARN
@@ -201,7 +212,7 @@ Resources:
                 Location: !Ref PipelineBucket
                 Type: S3
                 EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
             Name: !Sub ${AppCode}-pipeline
             RoleArn: !GetAtt PipelineRole.Arn
@@ -234,7 +245,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"BUILD_ROLE","value":"${BuildRoleARN}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"build","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"shared","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
@@ -264,7 +276,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
@@ -281,7 +294,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNShared}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"shared","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"shared","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
@@ -298,7 +312,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNDev}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"dev","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"dev","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
@@ -315,7 +330,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNTest}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"test","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"test","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
@@ -332,7 +348,8 @@ Resources:
                         EnvironmentVariables: !Sub '[
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNProd}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"prod","type":"PLAINTEXT"}
+                          {"name":"ENVIRONMENT","value":"prod","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: SourceZip

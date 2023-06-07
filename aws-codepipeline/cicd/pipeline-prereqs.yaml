@@ -1,33 +1,54 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Creates pre-requisite S3 buckets, policies and CMK KMS key and grants access to other deployment accounts
+Description: Creates pre-requisite S3 buckets, policies, KMS key and cross account access for centralised deployment pipelines
 Parameters:
-  DeploymentAccounts:
-    Description: AWS AccountNumber for prod
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  PipelineBucketKMSKeyAlias:
+      Type: String
+      Default: alias/devops-bucket-key
+      Description: KMS key alias used for codepipeline S3 bucket encryption
+  DevOpsAccountID:
+    Description: AWS AccountNumber for DevOps account
+    Type: String
+    Default: 238160719262
+  DeploymentAccountIds:
+    Description: AWS AccountNumbers for KMS access
     Type: CommaDelimitedList
-    Default: arn:aws:iam::238160719262:root,arn:aws:iam::238160719262:root
-  CreateRulesPipelinesPrereqs:
-    Description: Whether or not to deploy flexi pipeline buckets / cloudtrail
-    Type: String 
-    Default: "true"
-    AllowedValues:
-      - 'true'
-      - 'false'
+    Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+  PipelineRoles:
+    Description: IAM Pipeline Deployment Roles for KMS access
+    Type: CommaDelimitedList
+    Default: "arn:aws:iam::238160719262:role/*-CodePipeline-Role"
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: ap-southeast-2
 Conditions:
-  ShouldCreateRulesPipelinesPrereqs: !Equals 
-    - !Ref CreateRulesPipelinesPrereqs
-    - "true"
+  IsDevOpsAccount: !Equals 
+    - !Ref DevOpsAccountID
+    - !Ref AWS::AccountId
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsPrimaryAndDevOpsAccount: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition IsDevOpsAccount
+
 Resources:
   PipelineKMSKey:
     Type: AWS::KMS::Key
+    Condition: IsPrimaryAndDevOpsAccount
     Properties:
       Description: Used by Pipeline Role and Resource Deployment Roles for Pipeline Artifacts
-      EnableKeyRotation: true
+      EnableKeyRotation: false
       KeyPolicy:
         Version: "2012-10-17"
         Id: !Ref AWS::StackName
         Statement:
           -
-            Sid: Allows admin of the key
+            Sid: Allows delegated admin of the key
             Effect: Allow
             Principal:
               AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
@@ -35,7 +56,7 @@ Resources:
               - "kms:*"
             Resource: "*"
           -
-            Sid: Allow use of the key By cross account identities
+            Sid: Allows delegated use of the key
             Effect: Allow
             Principal:
               AWS:
@@ -48,10 +69,25 @@ Resources:
               - kms:DescribeKey
             Resource: "*"
           -
-            Sid: Allow use of the key By cross account identities
+            Sid: Allows codepipeline use of the key
             Effect: Allow
             Principal:
-              AWS: !Ref DeploymentAccounts
+              AWS: "*"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Ref PipelineRoles
+          -
+            Sid: Allow delegated cross account use of the key
+            Effect: Allow
+            Principal:
+              AWS: !Ref DeploymentAccountIds
             Action:
               - kms:Encrypt
               - kms:Decrypt
@@ -60,22 +96,29 @@ Resources:
               - kms:DescribeKey
             Resource: "*"
   PipelineKMSKeyAlias:
+    Condition: IsPrimaryAndDevOpsAccount
     Type: AWS::KMS::Alias
     Properties:
-      AliasName: !Sub alias/codepipeline-key
+      AliasName: !Ref PipelineBucketKMSKeyAlias
       TargetKeyId: !Ref PipelineKMSKey
   PipelineBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
+    Condition: IsPrimaryAndDevOpsAccount
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-pipelines'
+      BucketName: !Sub '${AWS::AccountId}-codepipeline'
       BucketEncryption:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: aws:kms
               KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 7
   PipelineBucketPolicy: 
     Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryAndDevOpsAccount
     Properties: 
       Bucket: !Ref PipelineBucket
       PolicyDocument: 
@@ -100,10 +143,10 @@ Resources:
               - !Sub '${PipelineBucket.Arn}/*'
               - !Sub '${PipelineBucket.Arn}'
             Principal: 
-              AWS: !Ref DeploymentAccounts
+              AWS: !Ref DeploymentAccountIds
   BuildBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
+    Condition: IsPrimaryAndDevOpsAccount
     Properties:
       BucketName: !Sub '${AWS::AccountId}-builds'
       BucketEncryption:
@@ -113,6 +156,7 @@ Resources:
               KMSMasterKeyID: !Sub '${PipelineKMSKey}'
   BuildBucketPolicy: 
     Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryAndDevOpsAccount
     Properties: 
       Bucket: !Ref BuildBucket
       PolicyDocument: 
@@ -137,64 +181,15 @@ Resources:
               - !Sub '${BuildBucket.Arn}/*'
               - !Sub '${BuildBucket.Arn}'
             Principal: 
-              AWS: !Ref DeploymentAccounts
-  CloudformationBucket:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    Properties:
-      BucketName: !Sub '${AWS::AccountId}-cloudformation'
-  CloudformationBucketPolicy: 
-    Type: AWS::S3::BucketPolicy
-    Properties: 
-      Bucket: !Ref CloudformationBucket
-      PolicyDocument: 
-        Statement: 
-          - 
-            Sid: Allows Cross Account access to Cloudformation bucket
-            Action: 
-              - "s3:*"
-            Effect: "Allow"
-            Resource: 
-              - !Sub '${CloudformationBucket.Arn}/*'
-              - !Sub '${CloudformationBucket.Arn}'
-            Principal: 
-              AWS:
-                - !Sub arn:aws:iam::${AWS::AccountId}:root
-          - 
-            Sid: Allows Cross Account access to Cloudformation bucket
-            Action: 
-              - "s3:*"
-            Effect: "Allow"
-            Resource: 
-              - !Sub '${CloudformationBucket.Arn}/*'
-              - !Sub '${CloudformationBucket.Arn}'
-            Principal: 
-              AWS: !Ref DeploymentAccounts
-
-  PipelineEventBucket:
-    Type: AWS::S3::Bucket
-    Condition: ShouldCreateRulesPipelinesPrereqs
-    DeletionPolicy: Retain
-    Properties:
-      BucketName: !Sub '${AWS::AccountId}-pipeline-events'
-      VersioningConfiguration:
-        Status: Enabled
-  CloudTrailTrail:
-    Type: "AWS::CloudTrail::Trail"
-    Condition: ShouldCreateRulesPipelinesPrereqs
-    Properties:
-      TrailName: !Sub '${AWS::AccountId}-cloudtrail-pipeline-events'
-      IsLogging: true
-      S3BucketName: !Sub '${AWS::AccountId}-cloudtrail'
-      EventSelectors:
-        - DataResources:
-            - Type: "AWS::S3::Object"
-              Values:
-                - !Sub "${PipelineEventBucket.Arn}/"
-          IncludeManagementEvents: false
-          ReadWriteType: WriteOnly
+              AWS: !Ref DeploymentAccountIds
 Outputs:
   PipelineBucket:
+    Condition: IsPrimaryAndDevOpsAccount
     Value: !Ref PipelineBucket
+    Export:
+      Name: !Sub 'PipelineBucket'
   BuildBucket:
+    Condition: IsPrimaryAndDevOpsAccount
     Value: !Ref BuildBucket
+    Export:
+      Name: !Sub 'BuildBucket'

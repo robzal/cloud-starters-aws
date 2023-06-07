@@ -1,5 +1,0 @@
-AppCode=${APP_CODE}
-Environment=${ENVIRONMENT}
-BuildAccount=${BUILD_ACCOUNT}
-PipelineBucketARN=${PIPELINE_BUCKET}
-PipelineBucketKMSKeyARN=${PIPELINE_KMS_KEY_ARN}

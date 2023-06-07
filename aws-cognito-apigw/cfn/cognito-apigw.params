@@ -1,0 +1,7 @@
+AppCode=${APP_CODE}
+Environment=${ENVIRONMENT}
+CognitoDomain=${COGNITO_DOMAIN}
+CognitoUserName=${COGNITO_USERNAME}
+LambdaBucket=${DEPLOYMENT_BUCKET}
+ApiAuthoriserBundleKey=${API_AUTH_BUNDLE}
+DemoApiBundleKey=${DEMO_API_BUNDLE}

@@ -1,4 +1,6 @@
 AppCode=${APP_CODE}
 DevOpsAccountID=${DEVOPS_ACCOUNT}
 DeploymentAccountIds=${DEPLOYMENT_ACCOUNTS}
+BuildRoleSuffix=${BUILD_ROLE_SUFFIX}
+DeploymentRoleSuffix=${DEPLOYMENT_ROLE_SUFFIX}
 PrimaryRegion=${PRIMARY_REGION}

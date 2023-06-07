@@ -13,6 +13,18 @@ Parameters:
     Description: AWS AccountNumber for prod
     Type: CommaDelimitedList
     Default: "967792619409,271005954527"
+  BuildRoleSuffix:
+      Type: String
+      Default: Build-Role
+      Description: Suffix for IAM Build role being created
+  DeploymentRoleSuffix:
+      Type: String
+      Default: Deployment-Role
+      Description: Suffix for IAM Deployment role being created
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources
     Type: String
@@ -47,7 +59,7 @@ Resources:
     Type: 'AWS::IAM::Role'
     Condition: IsPrimaryRegion
     Properties:
-      RoleName: !Sub '${AppCode}-Deployment-Role'
+      RoleName: !Sub '${AppCode}-${DeploymentRoleSuffix}'
       ManagedPolicyArns: 
         - !Ref DeploymentPolicy
       AssumeRolePolicyDocument:
@@ -77,7 +89,7 @@ Resources:
     Type: 'AWS::IAM::Role'
     Condition: IsPrimaryRegion
     Properties:
-      RoleName: !Sub '${AppCode}-Build-Role'
+      RoleName: !Sub '${AppCode}-${BuildRoleSuffix}'
       ManagedPolicyArns: 
         - !Ref DeploymentPolicy
       AssumeRolePolicyDocument:

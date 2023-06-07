@@ -22,23 +22,23 @@ Parameters:
     ECSClusterVPCID:
         Description: VPCID to deploy this infrastructure into
         Type: String
-        Default: vpc-03927f61fd6133f5c
+        Default: vpc-02dee7d733d73e02c
     ECSClusterSecGroups:
         Description: Instance type for the ECS Cluster
         Type: CommaDelimitedList
-        Default: sg-0f91af3db8e19143c
+        Default: sg-03cde45439be13a3b
     ECSClusterSubnet1:
         Description: Subnet ID 1 for Cluster
         Type: String
-        Default: subnet-0f95dfdd34cb4c53c
+        Default: subnet-0650a76442c640904
     ECSClusterSubnet2:
         Description: Subnet ID 2 for Cluster
         Type: String
-        Default: subnet-06e59c5cc754e109b
+        Default: subnet-0009a4a8e07242139
     ECSLoadBalSecGroups:
         Description: Instance type for the ECS Cluster
         Type: CommaDelimitedList
-        Default: sg-0f91af3db8e19143c
+        Default: sg-03cde45439be13a3b
     ECSLoadBalCertificate:
         Description: (Optional) LoadBal SSL Certiication ARN
         Type: String
@@ -52,11 +52,11 @@ Parameters:
     ECSLoadBalSubnet1:
         Description: Subnet ID 1 for Cluster
         Type: String
-        Default: subnet-095e09f6b9bb42805
+        Default: subnet-0650a76442c640904
     ECSLoadBalSubnet2:
         Description: Subnet ID 2 for Cluster
         Type: String
-        Default: subnet-065fda55cb1ae7f3d
+        Default: subnet-0009a4a8e07242139
     ECSTaskImageLinux:
         Description: The container image to use for linux tasks
         Type: String
@@ -102,8 +102,21 @@ Conditions:
     DoDNS: !Not [!Equals [!Ref ELBDNSAliasHost, ""]]
     DoHTTPS: !Not [!Equals [!Ref ECSLoadBalCertificate, ""]]
 Resources:
+    TaskExecutionECRPolicy:
+        Type: 'AWS::IAM::ManagedPolicy'
+        Properties:
+            ManagedPolicyName: !Sub '${AppCode}-${Environment}-ECR-Policy'
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                - Effect: Allow
+                  Action:
+                    - 'ecr:*'
+                  Resource:
+                    - '*'
     TaskExecutionRole:
         Type: AWS::IAM::Role
+        DependsOn: TaskExecutionECRPolicy
         Properties:
           AssumeRolePolicyDocument:
             Version: 2012-10-17
@@ -117,6 +130,7 @@ Resources:
           ManagedPolicyArns:
             - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
             - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+            - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/${AppCode}-${Environment}-ECR-Policy'
     TaskRole:
         Type: AWS::IAM::Role
         Properties:
@@ -305,6 +319,15 @@ Resources:
             Protocol: HTTP
             TargetType: ip
             HealthCheckPath: "/"
+    TargetGroupFargate2:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Fargate-TG2
+            VpcId: !Ref ECSClusterVPCID
+            Port: 80
+            Protocol: HTTP
+            TargetType: ip
+            HealthCheckPath: "/"
     LoadBalancerListenerFargate:
         Type: AWS::ElasticLoadBalancingV2::Listener
         Properties:
@@ -320,14 +343,52 @@ Resources:
         Type: AWS::ElasticLoadBalancingV2::ListenerRule
         Properties:
             ListenerArn: !Ref LoadBalancerListenerFargate
-            Priority: 2
+            Priority: 3
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /index.html
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupFargate
+                  Type: forward            
+    ListenerRuleFargate2:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerFargate
+            Priority: 4
             Conditions:
                 - Field: path-pattern
                   Values: 
                     - /
             Actions:
-                - TargetGroupArn: !Ref TargetGroupFargate
+                - TargetGroupArn: !Ref TargetGroupFargate2
                   Type: forward            
+    ListenerRuleLambda:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerFargate
+            Priority: 1
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /admin
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupLambda
+                  Type: forward            
+    ListenerRuleLambda2:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerListenerFargate
+            Priority: 2
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /*
+            Actions:
+                - TargetGroupArn: !Ref TargetGroupLambda
+                  Type: forward            
+
+
     TaskDefinitionFargate:
         Type: AWS::ECS::TaskDefinition
         DependsOn: ListenerRuleFargate
@@ -371,7 +432,7 @@ Resources:
             TaskDefinition: !Ref TaskDefinitionFargate
             NetworkConfiguration:
                 AwsvpcConfiguration:
-                    AssignPublicIp: DISABLED
+                    AssignPublicIp: ENABLED
                     Subnets: 
                         - !Ref ECSClusterSubnet1
                         - !Ref ECSClusterSubnet2
@@ -381,16 +442,175 @@ Resources:
                   ContainerPort: 80
                   TargetGroupArn: !Ref TargetGroupFargate
 
+    TaskDefinitionFargate2:
+        Type: AWS::ECS::TaskDefinition
+        DependsOn: ListenerRuleFargate
+        Properties: 
+            Family: !Sub ${AppCode}-${Environment}-fargate2
+            ExecutionRoleArn: !Ref TaskExecutionRole
+            TaskRoleArn: !Ref TaskRole
+            Cpu: 512
+            Memory: 1024
+            NetworkMode: "awsvpc"
+            RequiresCompatibilities: 
+              - "FARGATE"
+            ContainerDefinitions: 
+              - Name: !Sub ${AppCode}-${Environment}-fargate2
+                Cpu: 512
+                Memory: 1024
+                MemoryReservation: 1024
+                Image: !Ref ECSTaskImageLinux
+                PortMappings:
+                - ContainerPort: 80
+                Environment: 
+                - Name: APP_CODE
+                  Value: !Ref 'AppCode'
+                - Name: ENVIRONMENT
+                  Value: !Ref 'Environment'
+                LogConfiguration: 
+                    LogDriver: awslogs
+                    Options:
+                        awslogs-create-group: true
+                        awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-fargate2'
+                        awslogs-region: !Ref AWS::Region
+                        awslogs-stream-prefix: "log"
+    ServiceFargate2: 
+        Type: AWS::ECS::Service
+        DependsOn: TaskDefinitionFargate2
+        Properties: 
+            ServiceName: !Sub ${AppCode}-${Environment}-fargate2
+            Cluster: !Ref ECSClusterNameLinux
+            LaunchType: FARGATE
+            DesiredCount: !Ref ECSTaskCountFargate
+            TaskDefinition: !Ref TaskDefinitionFargate2
+            NetworkConfiguration:
+                AwsvpcConfiguration:
+                    AssignPublicIp: ENABLED
+                    Subnets: 
+                        - !Ref ECSClusterSubnet1
+                        - !Ref ECSClusterSubnet2
+                    SecurityGroups: !Ref ECSLoadBalSecGroups
+            LoadBalancers: 
+                - ContainerName: !Sub ${AppCode}-${Environment}-fargate2
+                  ContainerPort: 80
+                  TargetGroupArn: !Ref TargetGroupFargate2
+
+    TargetGroupLambda:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Lambda-TG
+            HealthCheckEnabled: false
+            TargetType: lambda
+            Targets:
+            - Id: !GetAtt [ LambdaFunction, Arn ]
+
+    TargetGroupLambda2:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Lambda-TG2
+            HealthCheckEnabled: false
+            TargetType: lambda
+            Targets:
+            - Id: !GetAtt [ LambdaFunction2, Arn ]
+
+    LambdaFunctionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                - Effect: Allow
+                  Principal:
+                    Service:
+                      - lambda.amazonaws.com
+                  Action:
+                    - "sts:AssumeRole"
+            RoleName: !Sub "${AppCode}-${Environment}-Lambda-Role"
+            ManagedPolicyArns:
+                - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+                - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
+                - 'arn:aws:iam::aws:policy/AmazonEC2FullAccess'
+            Path: /    
+    LambdaFunction:
+        Type: AWS::Lambda::Function 
+        Properties:
+            Code:
+                S3Bucket: '238160719262-deployments'
+                S3Key: 'ecs-metadata-1.0.0.zip'
+            Role:
+                Fn::GetAtt:
+                - LambdaFunctionRole
+                - Arn
+            Handler: lambda.handler
+            Runtime: python3.9
+            MemorySize: 128
+            Timeout: 30
+            FunctionName: !Sub '${AppCode}-${Environment}-Lambda-Function'
+            Environment:
+                Variables:
+                    APP_CODE: !Ref AppCode
+                    ENVIRONMENT: !Ref Environment
+                    ECS_CLUSTER_NAME: !Ref ECSClusterNameLinux
+            VpcConfig:
+                SecurityGroupIds: !Ref ECSLoadBalSecGroups
+                SubnetIds: 
+                    - subnet-058d24196599afd43
+                    - subnet-0e4f320620d8a8706
+
+    LambdaFunctionPermission:
+        Type: AWS::Lambda::Permission
+        Properties: 
+            Action: lambda:InvokeFunction
+            FunctionName: !GetAtt [ LambdaFunction, Arn ]
+            Principal: elasticloadbalancing.amazonaws.com
+            # SourceAccount: !Sub '${AWS::AccountId}'
+            # SourceArn: !GetAtt [ TargetGroupLambda, Arn ]
+
+    LambdaFunction2:
+        Type: AWS::Lambda::Function 
+        Properties:
+            Code:
+                S3Bucket: '238160719262-deployments'
+                S3Key: 'direct-api-1.0.1.zip'
+            Role:
+                Fn::GetAtt:
+                - LambdaFunctionRole
+                - Arn
+            Handler: lambda.handler
+            Runtime: python3.9
+            MemorySize: 128
+            Timeout: 30
+            FunctionName: !Sub '${AppCode}-${Environment}-Lambda-Function2'
+            Environment:
+                Variables:
+                    APP_CODE: !Ref AppCode
+                    ENVIRONMENT: !Ref Environment
+            VpcConfig:
+                SecurityGroupIds: !Ref ECSLoadBalSecGroups
+                SubnetIds: 
+                    - subnet-058d24196599afd43
+                    - subnet-0e4f320620d8a8706
+
+    LambdaFunctionPermission2:
+        Type: AWS::Lambda::Permission
+        Properties: 
+            Action: lambda:InvokeFunction
+            FunctionName: !GetAtt [ LambdaFunction2, Arn ]
+            Principal: elasticloadbalancing.amazonaws.com
+            # SourceAccount: !Sub '${AWS::AccountId}'
+            # SourceArn: !GetAtt [ TargetGroupLambda, Arn ]
+
+
     Route53:
             Type: AWS::Route53::RecordSetGroup
             Condition: DoDNS
             Properties:
-                HostedZoneName: !Ref ELBDNSAliasZone
                 Comment:  Alias for the API Service ELB.
+                HostedZoneName: !Ref ELBDNSAliasZone
                 RecordSets:
                 - Name: !Join ["", [!Ref ELBDNSAliasHost, ".", !Ref ELBDNSAliasZone]]
-                Type: A
-                AliasTarget:
+                  Type: A
+                  AliasTarget:
                     HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
                     DNSName: !GetAtt LoadBalancer.DNSName
 

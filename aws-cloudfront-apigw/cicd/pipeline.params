@@ -1,10 +1,11 @@
 AppCode=${APP_CODE}
 PipelineBucket=${PIPELINE_BUCKET}
-PipelineBucketKMSKeyARN=${PIPELINE_KMS_KEY_ARN}
+PipelineBucketKMSKeyAliasARN=${PIPELINE_KMS_KEY_ALIAS_ARN}
 CloudformationBucket=${CLOUDFORMATION_BUCKET}
 BuildBucket=${BUILD_BUCKET}
 CodeBuildImage=${CODE_BUILD_IMAGE}
 CodeBuildCompute=${CODE_BUILD_COMPUTE}
+CodeBuildType=${CODE_BUILD_TYPE}
 CodeCommitRepoName=${CODE_COMMIT_REPONAME}
 CodeCommitBranchName=${CODE_COMMIT_BRANCH}
 BuildRoleARN=${BUILD_ROLE_ARN}

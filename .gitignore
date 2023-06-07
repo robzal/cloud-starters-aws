@@ -29,6 +29,6 @@ build/
 packages/
 .aws-sam
 .env
-zz.py
+zz.*
 .params*
 .template-out.yaml

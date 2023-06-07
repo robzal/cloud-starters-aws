@@ -2,11 +2,12 @@ version: 0.2
 
 env:
   variables:
-    BUILD_BUCKET: "238160719262-builds"
-    CLOUDFORMATION_BUCKET: "238160719262-cloudformation"
-    DEPLOYMENT_ROLE: ""
+    BUILD_BUCKET: ""
+    CLOUDFORMATION_BUCKET: ""
+    BUILD_ROLE: ""
     APP_CODE: ""
-    ENVIRONMENT: "env"
+    ENVIRONMENT: ""
+    REGION: ""
     PARAMS: ""
   exported-variables:
     - PARAMS 
@@ -14,22 +15,15 @@ env:
 phases:
   install:
     runtime-versions:
-      python: 3.7
+      python: 3.11
     commands:
-      # Install Git Client
-      - apt-get update
-      - apt-get install --assume-yes docker sudo
-      - pip3 uninstall --yes awscli
-      - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-      - unzip awscliv2.zip
-      - sudo ./aws/install --update
       - echo Configuring AWS CLI
       - aws --version
         
   build:
     commands:
       - echo Running Build tasks for $APP_CODE 
-      - ./build.sh $ENVIRONMENT default $BUILD_ROLE
+      - ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
 
   post_build:
     commands:

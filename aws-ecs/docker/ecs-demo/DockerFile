@@ -1,0 +1,21 @@
+# escape=\
+FROM alpine:3.9
+
+ARG APP_CODE
+ENV APP_CODE=$APP_CODE
+
+ARG ORG_CODE
+ENV ORG_CODE=$ORG_CODE
+
+#copy jar
+# WORKDIR /opt
+# RUN mkdir origin
+# RUN echo COPY ./ /opt/origin/
+# COPY ./src/ "/opt/origin/"
+# RUN chmod 664 /opt/origin/*
+# WORKDIR /opt/origin
+# RUN npm install express
+# RUN npm install ejs
+
+# EXPOSE 80
+# CMD node server.js

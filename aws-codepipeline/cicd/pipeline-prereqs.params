@@ -1,2 +1,6 @@
-DeploymentAccounts=${TRUSTED_ACCOUNTS}
-CreateRulesPipelinesPrereqs=${CREATE_RULES_PIPELINES_PREREQS}
+AppCode=${APP_CODE}
+PipelineBucketKMSKeyAlias=${PIPELINE_KMS_KEY_ALIAS}
+DevOpsAccountID=${DEVOPS_ACCOUNT}
+DeploymentAccountIds=${DEPLOYMENT_ACCOUNTS}
+PipelineRoles=${CODE_PIPELINE_ROLES}
+PrimaryRegion=${PRIMARY_REGION}
