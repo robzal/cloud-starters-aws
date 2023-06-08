@@ -14,34 +14,6 @@ Parameters:
         Description: Name for the ECS Cluster being created
         Type: String
         Default: ecs-demo-dev-Fargate-Cluster
-    ClusterSubnet1:
-        Description: Subnet ID 1 for the ECS Cluster. It should not be publicly accessible
-        Type: String
-        Default: subnet-058d24196599afd43
-    ClusterSubnet2:
-        Description: Subnet ID 2 for the ECS Cluster. It should not be publicly accessible
-        Type: String
-        Default: subnet-0e4f320620d8a8706
-    VPCID:
-        Description: VPCID to deploy this infrastructure into
-        Type: String
-        Default: vpc-02dee7d733d73e02c
-    VPCCIDRBlock:
-        Description: CIDR Block for VPC, for use in security group rules
-        Type: String
-        Default: 10.0.0.0/16
-    LoadBalSubnet1:
-        Description: Subnet ID 1 for Load Balancer. It should be publicly accessible
-        Type: String
-        Default: subnet-0650a76442c640904
-    LoadBalSubnet2:
-        Description: Subnet ID 2 for Load Balancer. It should be publicly accessible
-        Type: String
-        Default: subnet-0009a4a8e07242139
-    LoadBalCertificate:
-        Description: LoadBal SSL Certification ARN
-        Type: String
-        Default: arn:aws:acm:ap-southeast-2:238160719262:certificate/3a873676-9b77-43ec-a41a-d77dbd325c3f
     ECSTaskImage:
         Description: The container image to use for container tasks
         Type: String
@@ -55,6 +27,34 @@ Parameters:
         Description: The container port number of the ECS fargate service
         Type: String
         Default: 80
+    VPCID:
+        Description: VPCID to deploy this infrastructure into
+        Type: String
+        Default: vpc-02dee7d733d73e02c
+    VPCCIDRBlock:
+        Description: CIDR Block for VPC, for use in security group rules
+        Type: String
+        Default: 10.0.0.0/16
+    ClusterSubnet1:
+        Description: Subnet ID 1 for the ECS Cluster. It should not be publicly accessible
+        Type: String
+        Default: subnet-058d24196599afd43
+    ClusterSubnet2:
+        Description: Subnet ID 2 for the ECS Cluster. It should not be publicly accessible
+        Type: String
+        Default: subnet-0e4f320620d8a8706
+    LoadBalSubnet1:
+        Description: Subnet ID 1 for Load Balancer. It should be publicly accessible
+        Type: String
+        Default: subnet-0650a76442c640904
+    LoadBalSubnet2:
+        Description: Subnet ID 2 for Load Balancer. It should be publicly accessible
+        Type: String
+        Default: subnet-0009a4a8e07242139
+    LoadBalCertificate:
+        Description: LoadBal SSL Certification ARN
+        Type: String
+        Default: "arn:aws:acm:ap-southeast-2:238160719262:certificate/3a873676-9b77-43ec-a41a-d77dbd325c3f"
     DNSAliasZone: 
         Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
         Type: String
@@ -127,7 +127,7 @@ Resources:
             LoadBalancerArn: !Ref LoadBalancer
             Port: 443
             Protocol: HTTPS
-            Certificates: 
+            Certificates:
               - !Ref LoadBalCertificate
             DefaultActions: 
                 - Type: fixed-response
@@ -184,6 +184,7 @@ Resources:
         Type: AWS::IAM::Role
         Condition: IsPrimaryRegion
         Properties:
+            RoleName: !Sub "${AppCode}-${Environment}-ALB-Lambda-Role"
             AssumeRolePolicyDocument:
                 Version: "2012-10-17"
                 Statement:
@@ -193,7 +194,6 @@ Resources:
                         - lambda.amazonaws.com
                   Action:
                     - "sts:AssumeRole"
-            RoleName: !Sub "${AppCode}-${Environment}-ALB-Lambda-Role"
             ManagedPolicyArns:
                 - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
             Path: /
@@ -205,6 +205,7 @@ Resources:
         Type: AWS::Lambda::Function
         DependsOn: LambdaFunctionLogGroup
         Properties:
+            FunctionName: !Sub '${AppCode}-${Environment}-ALB-Lambda'
             Code:
                 ZipFile: >
                   def handler(event, context):
@@ -212,7 +213,7 @@ Resources:
                     response = {
                                   'isBase64Encoded': False,
                                   'statusCode': 200,
-                                  'headers': {},
+                                  'headers': {"Content-Type": "application/text"},
                                   'multiValueHeaders': {},
                                   'body': 'Hello, World!'
                                 }
@@ -221,8 +222,7 @@ Resources:
             Role: !GetAtt LambdaFunctionRole.Arn
             Runtime: python3.9
             MemorySize: 128
-            Timeout: 10
-            FunctionName: !Sub '${AppCode}-${Environment}-ALB-Lambda'
+            Timeout: 15
             Environment:
                 Variables:
                     APP_CODE: !Ref AppCode
@@ -283,7 +283,7 @@ Resources:
     TaskSecurityGroup:
         Type: 'AWS::EC2::SecurityGroup'
         Properties:
-            GroupName: !Sub '${AppCode}-${Environment}-Task-SG'
+            GroupName: !Sub '${AppCode}-${Environment}-fargate-task-sg'
             GroupDescription: Enable ALB and local VPC access to the ECS Task
             VpcId: !Ref VPCID
             SecurityGroupIngress:
@@ -303,7 +303,7 @@ Resources:
         Type: AWS::ECS::Cluster
         Properties:
             ClusterName: !Ref ClusterName
-    TaskDefinitionLogGroup:
+    TaskLogGroup:
         Type: 'AWS::Logs::LogGroup'
         Properties:
             LogGroupName: !Sub '/ecs/${AppCode}-${Environment}-fargate-container'
@@ -360,18 +360,18 @@ Resources:
                   ContainerPort: !Ref ECSTaskPort
                   TargetGroupArn: !Ref TargetGroupFargate
 
-    Route53:
-            Type: AWS::Route53::RecordSetGroup
-            Condition: DoDNS
-            Properties:
-                Comment:  R53 Alias for the ALB.
-                HostedZoneName: !Ref DNSAliasZone
-                RecordSets:
-                - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
-                  Type: A
-                  AliasTarget:
-                    HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
-                    DNSName: !GetAtt LoadBalancer.DNSName
+    # Route53:
+    #         Type: AWS::Route53::RecordSetGroup
+    #         Condition: DoDNS
+    #         Properties:
+    #             Comment:  R53 Alias for the ALB.
+    #             HostedZoneName: !Ref DNSAliasZone
+    #             RecordSets:
+    #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+    #               Type: A
+    #               AliasTarget:
+    #                 HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+    #                 DNSName: !GetAtt LoadBalancer.DNSName
 
 Outputs:
     DNS: 

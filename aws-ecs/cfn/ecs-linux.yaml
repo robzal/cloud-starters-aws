@@ -1,0 +1,429 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+    Deploy an ECS service on either AWS Fargate, EC2 or Linux, hosted in a private subnet, but optionally accessible via a public load balancer
+
+Parameters: 
+    AppCode:
+        Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+        Type: String
+        Default: demo-ecs
+    Environment:
+        Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+        Type: String
+        Default: tools
+
+    ECSClusterName:
+        Description: Name for the Linux Cluster being deployed to
+        Type: String
+        Default: demo-ecs-dev-Linux-Cluster
+    ECSTaskImage:
+        Description: The container image to use for linux tasks
+        Type: String
+        Default: nginxdemos/hello
+    ECSTaskCount:
+        Description: The number of service tasks to run on Linux resources
+        Type: Number
+        Default: 0
+    ECSTaskPort:
+        Description: The load bal port number of the ECS Linux service (must be different to fargate service)
+        Type: Number
+        Default: 80
+
+    ECSInstanceCount: 
+        Description: How many instances will launch for the ECS Cluster?
+        Type: String
+        Default: 0
+    ECSInstanceType:
+        Description: Instance type for the ECS Cluster
+        Type: String
+        Default: t3.large
+    ECSInstanceAMI:
+        Description: Instance AMI for the ECS Cluster (Non Fargate)
+        Type: String
+        # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_linux_AMI.html
+        Default: ami-0279421890d4beee7
+    ECSInstanceKey:
+        Type: AWS::EC2::KeyPair::KeyName
+        Default: AWS-robzal
+
+    VPCID:
+        Description: VPCID to deploy this infrastructure into
+        Type: String
+        Default: vpc-02dee7d733d73e02c
+    VPCCIDRBlock:
+        Description: CIDR Block for VPC, for use in security group rules
+        Type: String
+        Default: 10.0.0.0/16
+    ClusterSubnet1:
+        Description: Subnet ID 1 for Cluster
+        Type: String
+        Default: subnet-058d24196599afd43
+    ClusterSubnet2:
+        Description: Subnet ID 2 for Cluster
+        Type: String
+        Default: subnet-0e4f320620d8a8706
+    LoadBalSubnet1:
+        Description: Subnet ID 1 for Cluster
+        Type: String
+        Default: subnet-0650a76442c640904
+    LoadBalSubnet2:
+        Description: Subnet ID 2 for Cluster
+        Type: String
+        Default: subnet-0009a4a8e07242139
+
+    LoadBalCertificate:
+        Description: LoadBal SSL Certification ARN
+        Type: String
+        Default: "arn:aws:acm:ap-southeast-2:238160719262:certificate/3a873676-9b77-43ec-a41a-d77dbd325c3f"
+    DNSAliasZone: 
+        Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
+        Type: String
+        Default: aws.worxdesign.com.
+    DNSAliasHost:
+        Description: (Optional) Alias Name for the ELB being created (minus the zone / domain)
+        Type: String
+        Default: ""
+    PrimaryRegion:
+        Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
+        Type: String
+        Default: "ap-southeast-2"
+Conditions:
+    DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
+    IsPrimaryRegion: !Equals 
+        - !Ref PrimaryRegion
+        - !Ref AWS::Region
+Resources:
+
+    ECSNodeInstanceRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                - Effect: Allow
+                  Principal:
+                    Service:
+                        - ec2.amazonaws.com
+                  Action:
+                        - "sts:AssumeRole"
+            RoleName: !Sub "${AppCode}-${Environment}-ECS-Linux-Instance-Role"
+            ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+                - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+            Path: /
+    ECSNodeInstanceProfile:
+        Type: "AWS::IAM::InstanceProfile"
+        Properties:
+            Path: /
+            Roles:
+                - Ref: ECSNodeInstanceRole
+
+    ECSCluster:
+        Type: AWS::ECS::Cluster
+        Properties:
+            ClusterName: !Ref ECSClusterName
+
+    ECSClusterSecurityGroup:
+        Type: 'AWS::EC2::SecurityGroup'
+        Properties:
+            GroupName: !Sub '${AppCode}-${Environment}-linux-cluster-sg'
+            GroupDescription: Enable ALB and local VPC access to the ECS Task
+            VpcId: !Ref VPCID
+            SecurityGroupIngress:
+                - IpProtocol: '-1'
+                  FromPort: !Ref ECSTaskPort
+                  ToPort: !Ref ECSTaskPort
+                  SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+                - IpProtocol: '-1'
+                  FromPort: !Ref ECSTaskPort
+                  ToPort: !Ref ECSTaskPort
+                  CidrIp: !Ref VPCCIDRBlock
+            SecurityGroupEgress:
+                - IpProtocol: '-1'
+                  CidrIp: 0.0.0.0/0
+    ECSLaunchConfiguration:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            ImageId: !Ref ECSInstanceAMI
+            InstanceType: !Ref ECSInstanceType
+            SecurityGroups: 
+                - !Ref ECSClusterSecurityGroup
+            IamInstanceProfile: !Ref ECSNodeInstanceProfile
+            KeyName: !Ref ECSInstanceKey
+            UserData:
+                "Fn::Base64": !Sub |
+                    #!/bin/bash
+                    echo ECS_CLUSTER=${ECSClusterName} >> /etc/ecs/ecs.config;
+                    echo ECS_BACKEND_HOST= >> /etc/ecs/ecs.config;
+                    
+                    # Stop the ECS agent container
+                    docker stop ecs-agent
+
+                    # Restart Docker
+                    /etc/init.d/docker restart
+
+                    # Start the ECS agent container
+                    docker start ecs-agent
+                    echo Done;
+    ECSAutoScalingGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier: 
+            - !Ref ClusterSubnet1
+            - !Ref ClusterSubnet2
+            LaunchConfigurationName: !Ref ECSLaunchConfiguration
+            MinSize: !Ref ECSInstanceCount
+            MaxSize: !Ref ECSInstanceCount
+            DesiredCapacity: !Ref ECSInstanceCount
+            Tags:
+                - Key: Name
+                  Value: !Sub ${AppCode}-${Environment} ECS Linux host
+                  PropagateAtLaunch: true
+        UpdatePolicy:
+            AutoScalingRollingUpdate:
+                MinInstancesInService: 1
+                MaxBatchSize: 1
+                PauseTime: PT5M
+                SuspendProcesses:
+                  - HealthCheck
+                  - ReplaceUnhealthy
+                  - AZRebalance
+                  - AlarmNotification
+                  - ScheduledActions
+    ECSCapacityProvider:
+        Type: "AWS::ECS::CapacityProvider"
+        Properties:
+          Name: !Sub 'ec2-${AppCode}-${Environment}-linux-ecs-cp'
+          AutoScalingGroupProvider:
+            AutoScalingGroupArn: !Ref ECSAutoScalingGroup
+            ManagedScaling:
+                Status: ENABLED
+                TargetCapacity: 100
+            ManagedTerminationProtection: DISABLED
+    ECSClusterCPAssociation:
+        Type: "AWS::ECS::ClusterCapacityProviderAssociations"
+        Properties:
+            Cluster: !Ref ECSCluster
+            CapacityProviders:
+                - !Ref ECSCapacityProvider
+            DefaultCapacityProviderStrategy:
+                - Base: 0
+                  Weight: 1
+                  CapacityProvider: !Ref ECSCapacityProvider
+
+    LoadBalancerSecurityGroup:
+        Type: 'AWS::EC2::SecurityGroup'
+        Properties:
+            GroupName: !Sub '${AppCode}-${Environment}-Linux-LoadBal-SG'
+            GroupDescription: Enable HTTP and HTTPS requests through to ALB
+            VpcId: !Ref VPCID
+            SecurityGroupIngress:
+                - IpProtocol: 'tcp'
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+                - IpProtocol: 'tcp'
+                  FromPort: 443
+                  ToPort: 443
+                  CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+                - IpProtocol: '-1'
+                  CidrIp: 0.0.0.0/0
+    LoadBalancer:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Linux-LoadBal
+            Scheme: internet-facing
+            Type: application
+            Subnets: 
+                - !Ref LoadBalSubnet1
+                - !Ref LoadBalSubnet2
+            SecurityGroups: 
+                - !Ref LoadBalancerSecurityGroup
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${AppCode}-${Environment}-Linux-LoadBal
+    LoadBalancerHttpRedirectListener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn: !Ref LoadBalancer
+            Port: 80
+            Protocol: HTTP
+            DefaultActions:
+                - RedirectConfig:
+                    Host: "#{host}"
+                    Path: "/#{path}"
+                    Port: 443
+                    Protocol: "HTTPS"
+                    Query: "#{query}"
+                    StatusCode: HTTP_301
+                  Type: redirect
+    LoadBalancerHttpsListener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn: !Ref LoadBalancer
+            Port: 443
+            Protocol: HTTPS
+            Certificates:  
+                - !Ref LoadBalCertificate
+            DefaultActions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroup
+    ListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            ListenerArn: !Ref LoadBalancerHttpsListener
+            Priority: 2
+            Conditions:
+                - Field: path-pattern
+                  Values: 
+                    - /
+            Actions:
+                - TargetGroupArn: !Ref TargetGroup
+                  Type: forward            
+
+    # TaskExecutionECRPolicy:
+    #     Type: 'AWS::IAM::ManagedPolicy'
+    #     Properties:
+    #         ManagedPolicyName: !Sub '${AppCode}-${Environment}-ECR-Policy'
+    #         PolicyDocument:
+    #             Version: 2012-10-17
+    #             Statement:
+    #             - Effect: Allow
+    #               Action:
+    #                 - 'ecr:*'
+    #               Resource:
+    #                 - '*'
+    TaskExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                    - "ecs-tasks.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          ManagedPolicyArns:
+            - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+            # - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/${AppCode}-${Environment}-ECR-Policy'
+    TaskRole:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                    - "ecs-tasks.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"
+          ManagedPolicyArns:
+            - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            # add the accesses that the container code needs
+            - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+            - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+
+    TaskSecurityGroup:
+        Type: 'AWS::EC2::SecurityGroup'
+        Properties:
+            GroupName: !Sub '${AppCode}-${Environment}-linux-task-sg'
+            GroupDescription: Enable ALB and local VPC access to the ECS Task
+            VpcId: !Ref VPCID
+            SecurityGroupIngress:
+                - IpProtocol: '-1'
+                  FromPort: !Ref ECSTaskPort
+                  ToPort: !Ref ECSTaskPort
+                  SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+                - IpProtocol: '-1'
+                  FromPort: !Ref ECSTaskPort
+                  ToPort: !Ref ECSTaskPort
+                  CidrIp: !Ref VPCCIDRBlock
+            SecurityGroupEgress:
+                - IpProtocol: '-1'
+                  CidrIp: 0.0.0.0/0
+
+    TargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            Name: !Sub ${AppCode}-${Environment}-Linux-TG
+            VpcId: !Ref VPCID
+            Port: !Ref ECSTaskPort
+            Protocol:  HTTP
+            TargetType: ip
+            HealthCheckPath: "/"
+    TaskLogGroup:
+        Type: 'AWS::Logs::LogGroup'
+        Properties:
+            LogGroupName: !Sub '/ecs/${AppCode}-${Environment}-linux-container'
+    TaskDefinition:
+        Type: AWS::ECS::TaskDefinition
+        DependsOn: ListenerRule
+        Properties:
+            Family: !Sub ${AppCode}-${Environment}-linux
+            NetworkMode: awsvpc
+            # not working - reverts to instance role
+            # ExecutionRoleArn: !Ref TaskExecutionRole
+            TaskRoleArn: !Ref TaskRole
+            ContainerDefinitions:
+                - Name: !Sub ${AppCode}-${Environment}-linux
+                  Essential: true
+                  Image: !Ref ECSTaskImage
+                  Cpu: 1024
+                  Memory: 2048
+                  PortMappings:
+                    - ContainerPort: !Ref ECSTaskPort
+                  Environment: 
+                  - Name: APP_CODE
+                    Value: !Ref 'AppCode'
+                  - Name: ENVIRONMENT
+                    Value: !Ref 'Environment'
+                  LogConfiguration:
+                    LogDriver: awslogs
+                    Options:
+                        awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-linux-container'
+                        awslogs-region: !Ref AWS::Region
+                        awslogs-stream-prefix: "log"  
+    Service: 
+        Type: AWS::ECS::Service
+        DependsOn: TaskDefinition
+        Properties: 
+            Cluster: !Ref ECSClusterName
+            ServiceName: !Sub ${AppCode}-${Environment}-linux
+            DesiredCount: !Ref ECSTaskCount
+            TaskDefinition: !Ref TaskDefinition
+            LaunchType: EC2
+            NetworkConfiguration:
+                AwsvpcConfiguration:
+                    AssignPublicIp: DISABLED
+                    Subnets: 
+                        - !Ref ClusterSubnet1
+                        - !Ref ClusterSubnet2
+                    SecurityGroups: 
+                        - !Ref TaskSecurityGroup
+            LoadBalancers: 
+                - ContainerName: !Sub ${AppCode}-${Environment}-linux
+                  ContainerPort: !Ref ECSTaskPort
+                  TargetGroupArn: !Ref TargetGroup
+
+    # Route53:
+    #         Type: AWS::Route53::RecordSetGroup
+    #         Condition: DoDNS
+    #         Properties:
+    #             Comment:  Alias for the API Service ELB.
+    #             HostedZoneName: !Ref DNSAliasZone
+    #             RecordSets:
+    #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+    #               Type: A
+    #               AliasTarget:
+    #                 HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+    #                 DNSName: !GetAtt LoadBalancer.DNSName
+
+Outputs:
+    ELBDNS: 
+        Description: Raw DNS Alias for ELB created 
+        Value: !GetAtt LoadBalancer.DNSName
