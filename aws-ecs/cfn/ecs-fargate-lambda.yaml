@@ -18,7 +18,6 @@ Parameters:
         Description: The container image to use for container tasks
         Type: String
         Default: nginxdemos/hello
-        # Default: 238160719262.dkr.ecr.ap-southeast-2.amazonaws.com/nginx:latest
     ECSTaskCount:
         Description: The number of service containers to run on fargate resources
         Type: String
@@ -55,6 +54,14 @@ Parameters:
         Description: LoadBal SSL Certification ARN
         Type: String
         Default: "arn:aws:acm:ap-southeast-2:238160719262:certificate/3a873676-9b77-43ec-a41a-d77dbd325c3f"
+    LambdaBucket:
+        Type: String
+        Default: 238160719262-deployments
+        Description: S3 Bucket for lambda code bundles
+    LambdaDemoFunctionBucketKey:
+        Type: String
+        Default: function-1.0.0.zip
+        Description: Filename to save Function 1 code bundle as.
     DNSAliasZone: 
         Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
         Type: String
@@ -64,7 +71,7 @@ Parameters:
         Type: String
         Default: "ecs-demo-dev-fargate-alb"
     PrimaryRegion:
-        Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
+        Description: Primary Region ID to detect where to deploy account wide resources.
         Type: String
         Default: "ap-southeast-2"
 Conditions:
@@ -207,22 +214,13 @@ Resources:
         Properties:
             FunctionName: !Sub '${AppCode}-${Environment}-ALB-Lambda'
             Code:
-                ZipFile: >
-                  def handler(event, context):
-                    print('hello from lambda')
-                    response = {
-                                  'isBase64Encoded': False,
-                                  'statusCode': 200,
-                                  'headers': {"Content-Type": "application/text"},
-                                  'multiValueHeaders': {},
-                                  'body': 'Hello, World!'
-                                }
-                    return response
-            Handler: index.handler
+                S3Bucket: !Ref LambdaBucket
+                S3Key: !Ref LambdaDemoFunctionBucketKey
+            Handler: lambda.handler
             Role: !GetAtt LambdaFunctionRole.Arn
-            Runtime: python3.9
+            Runtime: python3.10
             MemorySize: 128
-            Timeout: 15
+            Timeout: 10
             Environment:
                 Variables:
                     APP_CODE: !Ref AppCode
@@ -360,18 +358,18 @@ Resources:
                   ContainerPort: !Ref ECSTaskPort
                   TargetGroupArn: !Ref TargetGroupFargate
 
-    # Route53:
-    #         Type: AWS::Route53::RecordSetGroup
-    #         Condition: DoDNS
-    #         Properties:
-    #             Comment:  R53 Alias for the ALB.
-    #             HostedZoneName: !Ref DNSAliasZone
-    #             RecordSets:
-    #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
-    #               Type: A
-    #               AliasTarget:
-    #                 HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
-    #                 DNSName: !GetAtt LoadBalancer.DNSName
+    Route53:
+            Type: AWS::Route53::RecordSetGroup
+            Condition: DoDNS
+            Properties:
+                Comment:  R53 Alias for the ALB.
+                HostedZoneName: !Ref DNSAliasZone
+                RecordSets:
+                - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+                  Type: A
+                  AliasTarget:
+                    HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+                    DNSName: !GetAtt LoadBalancer.DNSName
 
 Outputs:
     DNS: 

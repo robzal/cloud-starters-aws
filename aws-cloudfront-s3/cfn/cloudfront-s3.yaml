@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-   This Template Creates a simple CloudFront distribution which uses an S3 bucket as its origin, optionally creating that bucket or else just taking its name as a parameter. Note CloudFront distributions must be deployed in us-east-1
+   This Template Creates a simple CloudFront distribution which uses an S3 bucket as its origin, optionally creating that bucket or else just taking its name as a parameter. Note CloudFront distributions with WAF enabled must be deployed in us-east-1
 Parameters:
   AppCode:
     Type: String
@@ -54,6 +54,7 @@ Parameters:
     Default: "us-east-1"
     AllowedValues: 
       - "us-east-1"
+      - "ap-southeast-2"
 
 Conditions:
   IsPrimaryRegion: !Equals 

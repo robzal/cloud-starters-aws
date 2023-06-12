@@ -1,15 +1,11 @@
 import sys
-import boto3
 import io
 import os
-import shutil
-import mimetypes
 import logging
-import zipfile
 import re
 import json
+import boto3
 import botocore.session
-import ast
 from botocore.client import Config
 from boto3.session import Session
 import jsonpickle
@@ -136,7 +132,7 @@ def queue_next_event(config_data, event_data):
     else:
         logger.info('No further Pipeline Stages to run')
 
-def lambda_handler(event, context):
+def handler(event, context):
 
     try:
         logger.info("CodeCommit event")

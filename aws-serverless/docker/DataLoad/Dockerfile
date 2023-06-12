@@ -6,4 +6,4 @@ COPY src/layers/utils/python/ .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-ENTRYPOINT ["python", "lambda_function.py"]
+ENTRYPOINT ["python", "lambda.py"]

@@ -1,13 +1,10 @@
-import sys
-import boto3
 import io
 import os
-import mimetypes
 import logging
 import re
 import json
 import botocore.session
-import ast
+import boto3
 from botocore.client import Config
 from boto3.session import Session
 import jsonpickle
@@ -194,7 +191,7 @@ def event_to_json(event_data):
         'env_file': event_data.env_file, \
         'params': event_data.params}
 
-def lambda_handler(event, context):
+def handler(event, context):
 
     try:
         logger.info('Post pipeline processing event')

@@ -24,7 +24,7 @@ def get_user(id):
    else:
        return 'return user {}'.format(id)
 
-def lambda_handler(event, context):
+def handler(event, context):
     return awsgi.response(app, event, context)
 
 if __name__ == '__main__':

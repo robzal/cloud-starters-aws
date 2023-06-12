@@ -64,7 +64,7 @@ def process_data():
         else:
             logger.info ("File {} has no data load actions associated with it".format(config['s3_file_name']))
 
-def lambda_handler(event, context):
+def handler(event, context):
 
     try:
         logger.info("Dataload via S3 event")
@@ -82,4 +82,4 @@ def lambda_handler(event, context):
 
 if __name__ == '__main__':
     SF_Record = json.dumps({'request': 'event'})
-    lambda_handler(SF_Record,'')
+    handler(SF_Record,'')

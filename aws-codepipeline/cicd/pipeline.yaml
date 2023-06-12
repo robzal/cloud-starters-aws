@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Build and Deploy Code Pipeline for Base Stacks in AWS Accounts
+  Creates a Build and single Account Deploy Code Pipeline calling shell scripts to run build and deploy actions
 Parameters:
     AppCode:
         Type: String
@@ -31,22 +31,6 @@ Parameters:
         Default: master
         Description: Name of the CodeCommit Branch for trigger pipeline
     DeploymentRoleARNAdmin:
-        Type: String
-        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
-        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
-    DeploymentRoleARNShared:
-        Type: String
-        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
-        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
-    DeploymentRoleARNDev:
-        Type: String
-        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
-        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
-    DeploymentRoleARNTest:
-        Type: String
-        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
-        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
-    DeploymentRoleARNProd:
         Type: String
         Default: arn:aws:iam::238160719262:role/DeploymentAdmin
         Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
@@ -173,10 +157,6 @@ Resources:
               Resource: 
                 - !Ref BuildRoleARN
                 - !Ref DeploymentRoleARNAdmin
-                - !Ref DeploymentRoleARNShared
-                - !Ref DeploymentRoleARNDev
-                - !Ref DeploymentRoleARNTest
-                - !Ref DeploymentRoleARNProd
     PipelineRole:
       Type: AWS::IAM::Role
       Properties:
@@ -262,7 +242,7 @@ Resources:
                         Provider: Manual
                         Version: 1
                       RunOrder: 1                    
-                - Name: DeployAllAccounts
+                - Name: Deploy
                   Actions:
                     - Name: DeployAdmin
                       Namespace: deployadmin
@@ -282,75 +262,3 @@ Resources:
                       InputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
-                    - Name: DeployShared
-                      Namespace: deployshared
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNShared}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"shared","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: SourceZip
-                      RunOrder: 2
-                    - Name: DeployDev
-                      Namespace: deploydev
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNDev}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"dev","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: SourceZip
-                      RunOrder: 3
-                    - Name: DeployTest
-                      Namespace: deploytest
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNTest}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"test","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: SourceZip
-                      RunOrder: 4
-                    - Name: DeployProd
-                      Namespace: deployprod
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNProd}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"prod","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: SourceZip
-                      RunOrder: 5

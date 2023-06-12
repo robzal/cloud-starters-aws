@@ -39,7 +39,7 @@ class DDBStream(object):
         return new_records, modified_records
 
 
-def lambda_handler(event, context):
+def handler(event, context):
     logger.info('stream event data')
     logger.info(event)
     stream = DDBStream()

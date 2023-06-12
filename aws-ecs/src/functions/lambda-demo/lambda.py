@@ -16,7 +16,7 @@ def response_handler(payload, status_code):
     return {
         "statusCode": status_code,
         "headers": {
-            "Content-Type": "application/html"
+            "Content-Type": "application/text"
         },
         "body": payload,
         "isBase64Encoded": False

@@ -84,7 +84,7 @@ Parameters:
         Type: String
         Default: ""
     PrimaryRegion:
-        Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
+        Description: Primary Region ID to detect where to deploy account wide resources.
         Type: String
         Default: "ap-southeast-2"
 Conditions:

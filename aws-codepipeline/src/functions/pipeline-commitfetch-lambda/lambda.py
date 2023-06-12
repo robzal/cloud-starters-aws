@@ -1,15 +1,16 @@
 import sys
-import boto3
 import io
 import os
-import shutil
-import mimetypes
-import logging
-import zipfile
 import re
 import json
-import botocore.session
+import logging
+
+import shutil
 import ast
+import zipfile
+
+import boto3
+import botocore.session
 from botocore.client import Config
 from boto3.session import Session
 
@@ -284,7 +285,7 @@ def event_to_json(event_data):
         'env_file': event_data.env_file, \
         'params': event_data.params}
 
-def lambda_handler(event, context):
+def handler(event, context):
 
     try:
         config_data = ConfigData()

@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-   This Template Creates a Custom Cloudformation Resource used to copy needed lambda code files from a URL as part of local deployment.
+   This Template Creates a Cloudformation Custom Resource which copies files from a given URL into local S3 bucket and specified key. 
+   It can be used to make private lambda code bundes, instead only sharing the generic file downloader bundle.
 Parameters:
   Environment:
       Type: String
@@ -75,7 +76,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.9
+      Runtime: python3.10
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-FileDownloader-Function'
@@ -110,7 +111,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.9
+      Runtime: python3.10
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-Lambda1-Function'
@@ -145,7 +146,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.9
+      Runtime: python3.10
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-Lambda2-Function'

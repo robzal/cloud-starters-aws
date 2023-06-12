@@ -466,7 +466,7 @@ Resources:
         - EKSClusterInstanceRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.8
+      Runtime: python3.10
       MemorySize: 128
       Timeout: 10
       FunctionName: !Sub '${AppCode}-${Environment}-Cluster-Fingerprint-Function'

@@ -4,11 +4,11 @@ Parameters:
   AppCode:
       Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: demo-pipeline
+      Default: codepipeline-demo
   Environment:
       Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: demo
+      Default: dev
 Resources:
   TestLogGroup:
     Type: 'AWS::Logs::LogGroup'

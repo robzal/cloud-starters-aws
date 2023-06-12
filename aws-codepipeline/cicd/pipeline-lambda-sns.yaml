@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Creates a Build and single Account Deploy Code Pipeline calling shell scripts to run build and deploy actions
+  Creates a Build and single Account Deploy Code Pipeline with additional lambda and SNS/ Lambda event integration, calling shell scripts to run build and deploy actions
 Parameters:
     AppCode:
         Type: String
@@ -12,8 +12,8 @@ Parameters:
         Description: Name of S3 bucket for CodePipeline to use
     PipelineBucketKMSKeyAliasARN:
         Type: String
-        Default: arn:aws:kms:ap-southeast-2:238160719262:alias/devops-bucket-key
-        Description: ARN of KMS key alias used for codepipeline S3 bucket encryption
+        Default: arn:aws:kms:ap-southeast-2:238160719262:key/db041cc6-935a-4b34-a539-d5c3ea6669ec
+        Description: ARN of KMS key used for S3 pipeline bucket encryption
     CloudformationBucket:
         Type: String
         Default: 238160719262-cloudformation
@@ -45,11 +45,23 @@ Parameters:
     CodeBuildCompute:
       Type: String
       Default: "BUILD_GENERAL1_SMALL"
-      Description: Compute Size to use for the CodeBuild container
+      Description: Container Size to use for the CodeBuild container
     CodeBuildType:
       Type: String
       Default: "LINUX_CONTAINER"
       Description: Compute Architecture to use for the CodeBuild container
+    LambdaBucket:
+        Type: String
+        Default: 238160719262-deployments
+        Description: Name of S3 bucket for Lambda code bundles
+    PipelineStageFunctionBucketKey:
+        Type: String
+        Default: 238160719262-pipelines
+        Description: Name of S3 key for Stage Function Code Bundle
+    PipelineSNSFunctionBucketKey:
+        Type: String
+        Default: 238160719262-pipelines
+        Description: Name of S3 key for SNS Function Code Bundle
 Resources:
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
@@ -138,7 +150,7 @@ Resources:
                 - 'codepipeline:PutJobSuccessResult'
                 - 'codepipeline:PutJobFailureResult'
               Resource:
-                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-pipeline
+                - "*"
             - Effect: Allow
               Action:
                 - 'codecommit:*'
@@ -157,6 +169,11 @@ Resources:
               Resource: 
                 - !Ref BuildRoleARN
                 - !Ref DeploymentRoleARNAdmin
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: 
+                - '*'
     PipelineRole:
       Type: AWS::IAM::Role
       Properties:
@@ -194,12 +211,13 @@ Resources:
                 EncryptionKey:
                   Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
-            Name: !Sub ${AppCode}-pipeline
+            Name: !Sub ${AppCode}-pipeline-lambda-sns
             RoleArn: !GetAtt PipelineRole.Arn
             Stages:
                 - Name: Source
                   Actions:
                     - Name: Source
+                      Namespace: Source
                       ActionTypeId:
                         Category: Source
                         Owner: AWS
@@ -211,6 +229,20 @@ Resources:
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
+                - Name: Lambda
+                  Actions:
+                    - Name: Lambda
+                      ActionTypeId:
+                        Category: Invoke
+                        Owner: AWS
+                        Provider: Lambda
+                        Version: '1'
+                      RunOrder: 1
+                      Configuration:
+                        FunctionName: !Sub '${AppCode}-PipelineStageFunction'
+                        UserParameters: '#{Source.CommitId}'
+                      InputArtifacts:
+                        - Name: SourceZip
                 - Name: Build
                   Actions:
                     - Name: Build
@@ -262,3 +294,156 @@ Resources:
                       InputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
+
+    PipelineStageFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        RoleName: !Sub "${AppCode}-PipelineStageFunction-Role"
+        ManagedPolicyArns:
+          - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        Path: /
+        Policies:
+          - PolicyName: CodePipelineAccess
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - codepipeline:PutJobSuccessResult
+                    - codepipeline:PutJobFailureResult
+                  Resource:
+                    - '*'
+    PipelineStageFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineStageFunction'
+        RetentionInDays: 14
+    PipelineStageFunction:
+      Type: AWS::Lambda::Function
+      DependsOn: PipelineStageFunctionLogGroup
+      Properties:
+        Code:
+          S3Bucket: !Ref LambdaBucket
+          S3Key: !Ref PipelineStageFunctionBucketKey
+        Role:
+          Fn::GetAtt:
+          - PipelineStageFunctionRole
+          - Arn
+        Handler: lambda.handler
+        Runtime: python3.10
+        MemorySize: 128
+        Timeout: 10
+        FunctionName: !Sub '${AppCode}-PipelineStageFunction'
+        Environment:
+          Variables:
+            APP_CODE: !Ref AppCode
+            REPOSITORY_NAME: !Ref CodeCommitRepoName
+    PipelineSNSFunctioRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        RoleName: !Sub "${AppCode}-PipelineSNSFunction-Role"
+        ManagedPolicyArns:
+          - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        Path: /
+    PipelineSNSFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineSNSFunction'
+        RetentionInDays: 14
+    PipelineSNSFunction:
+      Type: AWS::Lambda::Function
+      DependsOn: PipelineSNSFunctionLogGroup
+      Properties:
+        Code:
+          S3Bucket: !Ref LambdaBucket
+          S3Key: !Ref PipelineSNSFunctionBucketKey
+        Role:
+          Fn::GetAtt:
+          - PipelineSNSFunctioRole
+          - Arn
+        Handler: lambda.handler
+        Runtime: python3.10
+        MemorySize: 128
+        Timeout: 10
+        FunctionName: !Sub '${AppCode}-PipelineSNSFunction'
+        Environment:
+          Variables:
+            APP_CODE: !Ref AppCode
+
+    CodePipelineListener: 
+      Type: AWS::Events::Rule
+      Properties: 
+        Description: "Code Commit Listener"
+        EventPattern:
+          source:
+            - aws.codepipeline
+          detail-type:
+            - 'CodePipeline Pipeline Execution State Change'
+            - 'CodePipeline State Execution State Change'
+          resources:
+            - !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-pipeline-lambda-sns'
+        Targets: 
+          - 
+            Arn: !Ref PipelineSNSTopic
+              # Fn::GetAtt: 
+              #   - PipelineSNSTopic
+              #   - Arn
+            Id: "PipelineSNSTopic"
+    CodePipelineListenerInvokePermission:
+      Type: AWS::Lambda::Permission
+      Properties: 
+        FunctionName:  !GetAtt
+        - PipelineSNSFunction
+        - Arn
+        Action: lambda:InvokeFunction
+        Principal: events.amazonaws.com
+        SourceArn: !GetAtt CodePipelineListener.Arn 
+
+    PipelineSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !Sub '${AppCode}-pipeline-sns-topic'
+        TopicName: !Sub '${AppCode}-pipeline-sns-topic'
+        Subscription:
+          - Protocol: lambda
+            Endpoint: !GetAtt PipelineSNSFunction.Arn
+    PipelineSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        Topics:
+          - !Ref PipelineSNSTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: 'sns:Publish'
+              Resource: !Ref PipelineSNSTopic
+              Principal:
+                AWS: '*'
+              Condition:
+                ArnLike:
+                  AWS:SourceArn: !Sub 'arn:aws:*:*:${AWS::AccountId}:*'
+    PipelineSNSTopicInvokePermission:
+      Type: 'AWS::Lambda::Permission'
+      Properties:
+        Action: 'lambda:InvokeFunction'
+        FunctionName: !Ref PipelineSNSFunction
+        Principal: sns.amazonaws.com   

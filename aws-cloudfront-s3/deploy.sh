@@ -15,7 +15,6 @@ echo "Deploying Stacks into Primary Region."
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-cloudfront-s3 cfn/cloudfront-s3.yaml cfn/cloudfront-s3.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
-# SECONDARY_REGIONS
 if [[ -z $SECONDARY_REGIONS ]]; then
     echo "No Secondary Regions defined."
 else
@@ -23,7 +22,5 @@ else
     for r in ${SECONDARY_REGIONS//,/ }
     do
         load_env $r $1
-    # this stack can only be deployed in PRIMARY_REGION us-east-1
-    # deploy_stack $r $AWS_PROFILE ${APP_CODE}-cloudfront-s3 cfn/cloudfront-s3.yaml cfn/cloudfront-s3.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
     done
 fi

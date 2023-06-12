@@ -14,7 +14,7 @@ Parameters:
         Type: String
         Default: 583812563872-pipelines
         Description: Name of S3 bucket for CodePipeline to use
-    PipelineBucketKMSKeyARN:
+    PipelineBucketKMSKeyAliasARN:
         Type: String
         Default: arn:aws:kms:ap-southeast-2:583812563872:key/db041cc6-935a-4b34-a539-d5c3ea6669ec
         Description: ARN of KMS key used for S3 pipeline bucket encryption
@@ -64,7 +64,7 @@ Resources:
         Type: AWS::CodeBuild::Project
         Properties:
             Name: !Sub ${Environment}-${AppCode}-PreDeploy-Project
-            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
             Environment: 
@@ -85,7 +85,7 @@ Resources:
         Type: AWS::CodeBuild::Project
         Properties:
             Name: !Sub ${Environment}-${AppCode}-PostDeploy-Project
-            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
             Environment: 
@@ -169,7 +169,7 @@ Resources:
               Action:
                 - 'kms:*'
               Resource: 
-                - !Ref PipelineBucketKMSKeyARN
+                - !Ref PipelineBucketKMSKeyAliasARN
             - Effect: Allow
               Action:
                 - sts:AssumeRole
@@ -210,7 +210,7 @@ Resources:
                 Location: !Ref PipelineBucket
                 Type: S3
                 EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
             Name: !Sub ${Environment}-${AppCode}_pipeline01
             RoleArn: !GetAtt PipelineRole.Arn

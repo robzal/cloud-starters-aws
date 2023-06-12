@@ -1,7 +1,7 @@
 Environment=${ENVIRONMENT}
 AppCode=${APP_CODE}
 PipelineBucket=${PIPELINE_BUCKET}
-PipelineBucketKMSKeyARN=${PIPELINE_KMS_KEY_ARN}
+PipelineBucketKMSKeyAliasARN=${PIPELINE_KMS_KEY_ARN}
 CloudformationBucket=${CLOUDFORMATION_BUCKET}
 BuildBucket=${BUILD_BUCKET}
 CodeBuildImage=${CODE_BUILD_IMAGE}

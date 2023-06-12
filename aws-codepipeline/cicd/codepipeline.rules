@@ -4,21 +4,12 @@
             "branch_name" : "develop",
             "targets": [ 
                 {
-                    "app_code": "demo-pipeline",
-                    "pipeline_name": "demo-pipeline-dev-pipeline",
+                    "app_code": "codepipeline-demo",
+                    "pipeline_name": "codepipeline-demo-dev-pipeline",
                     "repository_name": "pipeline-test",
                     "branch_name": "develop",
                     "stack_name": "dev",
                     "environment": "dev",
-                    "env_file": "config/.env.dev"
-                },
-                {
-                    "app_code": "demo-pipeline",
-                    "pipeline_name": "demo-pipeline-test-pipeline",
-                    "repository_name": "pipeline-test",
-                    "branch_name": "develop",
-                    "stack_name": "test",
-                    "environment": "test",
                     "env_file": "config/.env.dev"
                 }
             ]
@@ -27,17 +18,17 @@
             "branch_name" : "master",
             "targets": [ 
                 {
-                    "app_code": "demo-pipeline",
-                    "pipeline_name": "demo-pipeline-stage-pipeline",
+                    "app_code": "codepipeline-demo",
+                    "pipeline_name": "codepipeline-demo-test-pipeline",
                     "repository_name": "pipeline-test",
                     "branch_name": "master",
-                    "stack_name": "stage",
-                    "environment": "stage",
-                    "env_file": "config/.env.stage"
+                    "stack_name": "test",
+                    "environment": "test",
+                    "env_file": "config/.env.test"
                 },
                 {
-                    "app_code": "demo-pipeline",
-                    "pipeline_name": "demo-pipeline-prod-pipeline",
+                    "app_code": "codepipeline-demo",
+                    "pipeline_name": "codepipeline-demo-prod-pipeline",
                     "repository_name": "pipeline-test",
                     "branch_name": "master",
                     "stack_name": "prod",

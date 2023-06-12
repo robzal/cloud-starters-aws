@@ -1,27 +1,21 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Template for fancy commitid event based pipeline in AWS
+  Creates a Build and single Account Deploy Code Pipeline calling shell scripts to run build and deploy actions
+
 Parameters:
-    Environment:
-        Type: String
-        Default: tools
-        Description: Short Name for the Environment being deployed in this pipeline, to be used in resource and stack names
     AppCode:
         Type: String
-        Default: demo-pipeline-rulesengine
+        Default: codepipeline-demo-rulesengine
         Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
     PipelineBucket:
         Type: String
         Default: 238160719262-pipelines
         Description: Name of S3 bucket for CodePipeline to use
-    PipelineBucketKMSKeyARN:
+    PipelineBucketKMSKeyAliasARN:
         Type: String
         Default: arn:aws:kms:ap-southeast-2:238160719262:key/784d1ffe-4317-452c-b6d3-7d2b7f4b612b
         Description: ARN of KMS key used for S3 pipeline bucket encryption
-    PipelineEventsBucket:
-        Type: String
-        Default: 238160719262-pipeline-events
-        Description: Name of S3 bucket for commit trigger files         
     CloudformationBucket:
         Type: String
         Default: 238160719262-cloudformation
@@ -30,62 +24,6 @@ Parameters:
         Type: String
         Default: 238160719262-builds
         Description: Name of S3 bucket for build artefacts 
-    CodeCommitRepoName:
-        Type: String
-        Default: pipeline-test
-        Description: Name of the CodeCommit Repo comtaining source to deploy with the pipeline
-    DevPipelineName:
-        Type: String
-        Default: demo-pipeline-dev-pipeline
-        Description: Name and reference for dev pipeline
-    TestPipelineName:
-        Type: String
-        Default: demo-pipeline-test-pipeline
-        Description: Name and reference for test pipeline
-    StagePipelineName:
-        Type: String
-        Default: demo-pipeline-stage-pipeline
-        Description: Name and reference for stage pipeline
-    ProdPipelineName:
-        Type: String
-        Default: demo-pipeline-prod-pipeline
-        Description: Name and reference for prod pipeline
-    DevAccountDeploymentRoleARN:
-        Type: String
-        Default: arn:aws:iam::967792619409:role/Admins
-        Description: ARN of the deployment role to assume in the dev account when deploying cloudformation template
-    TestAccountDeploymentRoleARN:
-        Type: String
-        Default: arn:aws:iam::967792619409:role/Admins
-        Description: ARN of the deployment role to assume in the test account when deploying cloudformation template
-    StageAccountDeploymentRoleARN:
-        Type: String
-        Default: arn:aws:iam::271005954527:role/Admins
-        Description: ARN of the deployment role to assume in the stg account when deploying cloudformation template
-    ProdAccountDeploymentRoleARN:
-        Type: String
-        Default: arn:aws:iam::271005954527:role/Admins
-        Description: ARN of the deployment role to assume in the prod account when deploying cloudformation template
-    LambdaBucket:
-      Type: String
-      Default: "238160719262-deployments"
-      Description: Bucket that holds the pipeline event lambda code files
-    LambdaFolder:
-      Type: String
-      Default: "cicd/"
-      Description: Folder inside the lambda code bucket
-    LambdaCodeFileCommitEvent:
-      Type: String
-      Default: "PipelineCommitEventFunction_1.0.0.zip"
-      Description: Name of the code file for the CodeCommit Event Lambda
-    LambdaCodeFileCommitFetch:
-      Type: String
-      Default: "PipelineCommitFetchFunction_1.0.0.zip"
-      Description: Name of the code file for the Git Fetch Lambda
-    LambdaCodeFileNextExecution:
-      Type: String
-      Default: "PipelineNextExecutionFunction_1.0.0.zip"
-      Description: Name of the code file for the Next Pipeline Check Lambda
     CodeBuildImage:
         Type: String
         Default: "aws/codebuild/standard:7.0"
@@ -94,12 +32,74 @@ Parameters:
       Type: String
       Default: "BUILD_GENERAL1_SMALL"
       Description: Container Size to use for the CodeBuild container
+    CodeBuildType:
+      Type: String
+      Default: "LINUX_CONTAINER"
+      Description: Compute Architecture to use for the CodeBuild container
+    CodeCommitRepoName:
+        Type: String
+        Default: pipeline-test
+        Description: Name of the CodeCommit Repo comtaining source to deploy with the pipeline
+    BuildRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+    DevAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::967792619409:role/Admins
+        Description: ARN of the deployment role to assume in the dev account when deploying cloudformation template
+    TestAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::967792619409:role/Admins
+        Description: ARN of the deployment role to assume in the test account when deploying cloudformation template
+    ProdAccountDeploymentRoleARN:
+        Type: String
+        Default: arn:aws:iam::271005954527:role/Admins
+        Description: ARN of the deployment role to assume in the prod account when deploying cloudformation template
+    LambdaBucket:
+      Type: String
+      Default: "238160719262-deployments"
+      Description: Bucket that holds the pipeline event lambda code files
+    CodeCommitEventFunctionBucketKey:
+      Type: String
+      Default: "PipelineCommitEventFunction_1.0.0.zip"
+      Description: Name of the code file for the CodeCommit Event Lambda
+    CodeCommitFetchFunctionBucketKey:
+      Type: String
+      Default: "PipelineCommitFetchFunction_1.0.0.zip"
+      Description: Name of the code file for the Git Fetch Lambda
+    NextExecutionFunctionBucketKey:
+      Type: String
+      Default: "PipelineNextExecutionFunction_1.0.0.zip"
+      Description: Name of the code file for the Next Pipeline Check Lambda
+    DevPipelineName:
+        Type: String
+        Default: codepipeline-demo-dev-pipeline
+        Description: Name and reference for dev pipeline
+    TestPipelineName:
+        Type: String
+        Default: codepipeline-demo-test-pipeline
+        Description: Name and reference for test pipeline
+    ProdPipelineName:
+        Type: String
+        Default: codepipeline-demo-prod-pipeline
+        Description: Name and reference for prod pipeline
+    PipelineEventsBucketName:
+        Type: String
+        Default: 238160719262-pipeline-events
+        Description: Name of S3 bucket for commit trigger files         
+
 Resources:
+    BuildProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-build-project'
+        RetentionInDays: 14
     BuildProject:
         Type: AWS::CodeBuild::Project
         Properties:
             Name: !Sub ${AppCode}-build-project
-            EncryptionKey: !Ref PipelineBucketKMSKeyARN
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
             Environment: 
@@ -115,7 +115,7 @@ Resources:
             ServiceRole: !GetAtt PipelineRole.Arn
             Source: 
                 Type: CODEPIPELINE
-                BuildSpec: buildspec-rulesengine.yaml
+                BuildSpec: cicd/buildspec-rulesengine.yaml
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -142,8 +142,8 @@ Resources:
                 - !Sub 'arn:aws:s3:::${CloudformationBucket}'
                 - !Sub 'arn:aws:s3:::${BuildBucket}/*'
                 - !Sub 'arn:aws:s3:::${BuildBucket}'
-                - !Sub 'arn:aws:s3:::${PipelineEventsBucket}/*'
-                - !Sub 'arn:aws:s3:::${PipelineEventsBucket}'
+                - !Sub 'arn:aws:s3:::${PipelineEventsBucketName}/*'
+                - !Sub 'arn:aws:s3:::${PipelineEventsBucketName}'
             - Effect: Allow
               Action:
                 - 'iam:PassRole'
@@ -163,23 +163,24 @@ Resources:
                 - 'codebuild:BatchGetBuilds'
               Resource: 
                 - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-build-project'
-            - Effect: Allow
-              Action:
-                - 'kms:*'
-              Resource: 
-                - !Ref PipelineBucketKMSKeyARN
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-build-project'
+            # - Effect: Allow
+            #   Action:
+            #     - 'kms:*'
+            #   Resource: 
+            #     - !Ref PipelineBucketKMSKeyAliasARN
             - Effect: Allow
               Action:
                 - sts:AssumeRole
               Resource: 
+                - !Ref BuildRoleARN
                 - !Ref DevAccountDeploymentRoleARN
                 - !Ref TestAccountDeploymentRoleARN
-                - !Ref StageAccountDeploymentRoleARN
                 - !Ref ProdAccountDeploymentRoleARN
     PipelineRole:
       Type: AWS::IAM::Role
       Properties:
-          RoleName: !Sub '${AppCode}-CodePipelineRole'
+          RoleName: !Sub '${AppCode}-CodePipeline-Role'
           AssumeRolePolicyDocument:
               Version: '2012-10-17'
               Statement:
@@ -211,7 +212,7 @@ Resources:
                 Location: !Ref PipelineBucket
                 Type: S3
                 EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
             Name: !Sub ${DevPipelineName}
             RoleArn: !GetAtt PipelineRole.Arn
@@ -225,7 +226,7 @@ Resources:
                         Provider: S3
                         Version: 1
                       Configuration:
-                        S3Bucket: !Ref PipelineEventsBucket
+                        S3Bucket: !Ref PipelineEventsBucketName
                         S3ObjectKey:  !Sub 'events/${AppCode}/${DevPipelineName}'
                         PollForSourceChanges: 'true'
                       OutputArtifacts:
@@ -313,7 +314,7 @@ Resources:
                 Location: !Ref PipelineBucket
                 Type: S3
                 EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
             Name: !Sub ${TestPipelineName}
             RoleArn: !GetAtt PipelineRole.Arn
@@ -327,7 +328,7 @@ Resources:
                         Provider: S3
                         Version: 1
                       Configuration:
-                        S3Bucket: !Ref PipelineEventsBucket
+                        S3Bucket: !Ref PipelineEventsBucketName
                         S3ObjectKey:  !Sub 'events/${AppCode}/${TestPipelineName}'
                         PollForSourceChanges: 'true'
                       OutputArtifacts:
@@ -417,117 +418,6 @@ Resources:
                       InputArtifacts:
                         - Name: CommitZip
                       RunOrder: 1    
-    PipelineStage:
-        Type: AWS::CodePipeline::Pipeline
-        Properties:
-            ArtifactStore: 
-                Location: !Ref PipelineBucket
-                Type: S3
-                EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
-                  Type: KMS
-            Name: !Sub ${StagePipelineName}
-            RoleArn: !GetAtt PipelineRole.Arn
-            Stages:
-                - Name: Source
-                  Actions:
-                    - Name: SourceTrigger
-                      ActionTypeId:
-                        Category: Source
-                        Owner: AWS
-                        Provider: S3
-                        Version: 1
-                      Configuration:
-                        S3Bucket: !Ref PipelineEventsBucket
-                        S3ObjectKey:  !Sub 'events/${AppCode}/${StagePipelineName}'
-                        PollForSourceChanges: 'true'
-                      OutputArtifacts:
-                        - Name: SourceZip
-                      RunOrder: 1
-                - Name: Approval
-                  Actions:
-                    - Name: StageApproval
-                      ActionTypeId:
-                        Category: Approval
-                        Owner: AWS
-                        Provider: Manual
-                        Version: 1
-                      RunOrder: 1                    
-                - Name: CommitFetch
-                  Actions:
-                    - Name: CommitFetch
-                      Namespace: pipelinevariables
-                      ActionTypeId:
-                        Category: Invoke
-                        Owner: AWS
-                        Provider: Lambda
-                        Version: 1
-                      Configuration:
-                        FunctionName: !Ref PipelineCommitFetchFunction
-                        UserParameters: !Sub '{
-                          "APP_CODE": "${AppCode}", 
-                          "PIPELINE_NAME": " ${StagePipelineName}",
-                          "REPOSITORY_NAME": "${CodeCommitRepoName}", 
-                          "FETCH_FILE_LIST": "buildspec.yaml,buildspec-rulesengine.yaml"
-                          }'                
-                      InputArtifacts:
-                        - Name: SourceZip
-                      OutputArtifacts:
-                        - Name: CommitZip
-                      RunOrder: 1
-                - Name: DeployStage
-                  Actions:
-                    - Name: PackageDeployment
-                      Namespace: buildvariables
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref BuildProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${StageAccountDeploymentRoleARN}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"#{pipelinevariables.app_code}","type":"PLAINTEXT"},
-                          {"name":"PIPELINE_NAME","value":"#{pipelinevariables.pipeline_name}","type":"PLAINTEXT"},
-                          {"name":"REPOSITORY_NAME","value":"#{pipelinevariables.repository_name}","type":"PLAINTEXT"},
-                          {"name":"BRANCH_NAME","value":"#{pipelinevariables.branch_name}","type":"PLAINTEXT"},
-                          {"name":"COMMIT_ID","value":"#{pipelinevariables.commit_id}","type":"PLAINTEXT"},
-                          {"name":"STACK_NAME","value":"#{pipelinevariables.stack_name}","type":"PLAINTEXT"},
-                          {"name":"ENV_FILE","value":"#{pipelinevariables.env_file}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"#{pipelinevariables.environment}","type":"PLAINTEXT"},
-                          {"name":"PARAMS","value":"#{pipelinevariables.params}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: CommitZip
-                      OutputArtifacts:
-                        - Name: BuildZip
-                      RunOrder: 1
-                - Name: PostProcess
-                  Actions:
-                    - Name: PostProcess
-                      Namespace: PostProcess
-                      ActionTypeId:
-                        Category: Invoke
-                        Owner: AWS
-                        Provider: Lambda
-                        Version: 1
-                      Configuration:
-                        FunctionName: !Ref PipelineNextExecutionFunction
-                        UserParameters: !Sub '{
-                        "APP_CODE": "#{pipelinevariables.app_code}", 
-                        "PIPELINE_NAME": "#{pipelinevariables.pipeline_name}",
-                        "REPOSITORY_NAME": "#{pipelinevariables.repository_name}", 
-                        "BRANCH_NAME": "#{pipelinevariables.branch_name}",
-                        "COMMIT_ID": "#{pipelinevariables.commit_id}", 
-                        "STACK_NAME": "#{pipelinevariables.stack_name}",
-                        "ENVIRONMENT": "#{pipelinevariables.environment}", 
-                        "ENV_FILE": "#{pipelinevariables.env_file}",
-                        "PARAMS": "#{buildvariables.PARAMS}"
-                        }'             
-                      InputArtifacts:
-                        - Name: CommitZip
-                      RunOrder: 1    
     PipelineProd:
         Type: AWS::CodePipeline::Pipeline
         Properties:
@@ -535,7 +425,7 @@ Resources:
                 Location: !Ref PipelineBucket
                 Type: S3
                 EncryptionKey:
-                  Id: !Ref PipelineBucketKMSKeyARN
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
                   Type: KMS
             Name: !Sub ${ProdPipelineName}
             RoleArn: !GetAtt PipelineRole.Arn
@@ -549,7 +439,7 @@ Resources:
                         Provider: S3
                         Version: 1
                       Configuration:
-                        S3Bucket: !Ref PipelineEventsBucket
+                        S3Bucket: !Ref PipelineEventsBucketName
                         S3ObjectKey:  !Sub 'events/${AppCode}/${ProdPipelineName}'
                         PollForSourceChanges: 'true'
                       OutputArtifacts:
@@ -639,6 +529,11 @@ Resources:
                       InputArtifacts:
                         - Name: CommitZip
                       RunOrder: 1    
+    PipelineCommitFetchFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineCommitFetchLambda'
+        RetentionInDays: 14
     PipelineCommitFetchFunction:
       Type: AWS::Lambda::Function 
       Properties:
@@ -646,22 +541,27 @@ Resources:
           S3Bucket:
               Fn::Sub: "${LambdaBucket}"
           S3Key:
-              Fn::Sub: "${LambdaFolder}/${LambdaCodeFileCommitFetch}"
+              Fn::Sub: "${CodeCommitFetchFunctionBucketKey}"
         Role:
           Fn::GetAtt:
           - PipelineRole
           - Arn
-        Handler: lambda_function.lambda_handler
-        Runtime: python3.8
-        MemorySize: 512
-        Timeout: 900
+        Handler: lambda.handler
+        Runtime: python3.10
+        MemorySize: 128
+        Timeout: 300
         FunctionName: !Sub '${AppCode}-PipelineCommitFetchLambda'
         Environment:
           Variables:
             APP_CODE: !Ref AppCode
             REPOSITORY_NAME: !Ref CodeCommitRepoName
-            EVENT_BUCKET_NAME: !Ref PipelineEventsBucket
+            EVENT_BUCKET_NAME: !Ref PipelineEventsBucketName
             EVENT_BUCKET_RULES_KEY: !Sub 'rules/${CodeCommitRepoName}.rules'
+    PipelineCommitEventFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineCommitEventLambda'
+        RetentionInDays: 14
     PipelineCommitEventFunction:
       Type: AWS::Lambda::Function
       Properties:
@@ -669,22 +569,27 @@ Resources:
           S3Bucket:
               Fn::Sub: "${LambdaBucket}"
           S3Key:
-              Fn::Sub: "${LambdaFolder}/${LambdaCodeFileCommitEvent}"
+              Fn::Sub: "${CodeCommitEventFunctionBucketKey}"
         Role:
           Fn::GetAtt:
           - PipelineRole
           - Arn
-        Handler: lambda_function.lambda_handler
-        Runtime: python3.8
-        MemorySize: 512
-        Timeout: 120
+        Handler: lambda.handler
+        Runtime: python3.10
+        MemorySize: 128
+        Timeout: 30
         FunctionName: !Sub '${AppCode}-PipelineCommitEventLambda'
         Environment:
           Variables:
             APP_CODE: !Ref AppCode
             REPOSITORY_NAME: !Ref CodeCommitRepoName
-            EVENT_BUCKET_NAME: !Ref PipelineEventsBucket
+            EVENT_BUCKET_NAME: !Ref PipelineEventsBucketName
             EVENT_BUCKET_RULES_KEY: !Sub 'rules/${CodeCommitRepoName}.rules'
+    PipelineNextExecutionFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineNextExecutionLambda'
+        RetentionInDays: 14
     PipelineNextExecutionFunction:
       Type: AWS::Lambda::Function
       Properties:
@@ -692,21 +597,21 @@ Resources:
           S3Bucket:
               Fn::Sub: "${LambdaBucket}"
           S3Key:
-              Fn::Sub: "${LambdaFolder}/${LambdaCodeFileNextExecution}"
+              Fn::Sub: "${NextExecutionFunctionBucketKey}"
         Role:
           Fn::GetAtt:
           - PipelineRole
           - Arn
-        Handler: lambda_function.lambda_handler
-        Runtime: python3.8
-        MemorySize: 512
-        Timeout: 120
+        Handler: lambda.handler
+        Runtime: python3.10
+        MemorySize: 128
+        Timeout: 30
         FunctionName: !Sub '${AppCode}-PipelineNextExecutionLambda'
         Environment:
           Variables:
             APP_CODE: !Ref AppCode
             REPOSITORY_NAME: !Ref CodeCommitRepoName
-            EVENT_BUCKET_NAME: !Ref PipelineEventsBucket
+            EVENT_BUCKET_NAME: !Ref PipelineEventsBucketName
             EVENT_BUCKET_RULES_KEY: !Sub 'rules/${CodeCommitRepoName}.rules'           
     CodeCommitListener: 
       Type: AWS::Events::Rule
@@ -741,3 +646,22 @@ Resources:
         Action: lambda:InvokeFunction
         Principal: events.amazonaws.com
         SourceArn: !GetAtt CodeCommitListener.Arn 
+
+    PipelineEventsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Ref PipelineEventsBucketName
+        VersioningConfiguration:
+          Status: Enabled
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: 'AES256'
+        LoggingConfiguration:
+          DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+          LogFilePrefix: s3serveraccesslogs/codepipeline-events
+        LifecycleConfiguration:
+          Rules:
+            - Id: PipelineRule
+              Status: Enabled
+              ExpirationInDays: 7
