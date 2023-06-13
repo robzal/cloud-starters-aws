@@ -1,6 +1,6 @@
-FROM python:3.9-slim
+FROM python:3.10-slim
 
-COPY src/lambdas/dataload/ .
+COPY src/functions/dataload/ .
 COPY src/layers/models/python/ .
 COPY src/layers/utils/python/ .
 

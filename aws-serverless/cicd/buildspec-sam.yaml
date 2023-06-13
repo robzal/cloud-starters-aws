@@ -15,7 +15,7 @@ env:
 phases:
   install:
     runtime-versions:
-      python: 3.11
+      python: 3.10
     commands:
       - echo Configuring AWS CLI
       - aws --version
@@ -30,3 +30,7 @@ phases:
     commands:
       - export PARAMS=Build-1234
       - echo Build completed on `date`
+
+artifacts:
+  files:
+    - '**/*'

@@ -13,7 +13,10 @@ load_env () {
     if [[ -z "$VERSION" ]]; then
         export VERSION=${CODEBUILD_RESOLVED_SOURCE_VERSION: -7}
         if [[ -z "$VERSION" ]]; then
-           export VERSION=1.0.0
+            export VERSION=${COMMIT_ID: -7}
+            if [[ -z "$VERSION" ]]; then
+                export VERSION=1.0.0
+            fi
         fi
     fi
 
@@ -114,8 +117,8 @@ build_docker () {
         cat $D_DIR/$d/build.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp
         envsubst < .params.tmp > .params
 
-        echo docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/DockerFile $(cat .params) .
-        docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/DockerFile $(cat .params) .
+        echo docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/Dockerfile $(cat .params) .
+        docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/Dockerfile $(cat .params) .
     done
 }
 

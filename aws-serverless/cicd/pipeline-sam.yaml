@@ -40,7 +40,7 @@ Parameters:
         Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
     CodeBuildImage:
         Type: String
-        Default: "aws/codebuild/standard:7.0"
+        Default: "aws/codebuild/standard:6.0"
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String
@@ -200,6 +200,7 @@ Resources:
                 - Name: Source
                   Actions:
                     - Name: Source
+                      Namespace: Source
                       ActionTypeId:
                         Category: Source
                         Owner: AWS
@@ -214,7 +215,7 @@ Resources:
                 - Name: Build
                   Actions:
                     - Name: Build
-                      Namespace: build
+                      Namespace: Build
                       ActionTypeId:
                         Category: Build
                         Owner: AWS
@@ -257,7 +258,8 @@ Resources:
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
                           {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
                         - Name: BuildZip

@@ -34,9 +34,11 @@ def send_codepipeline_result(jobid, result):
 
 def handler(event, context):
 
+    logger.info('CodePipeline Action Lambda event')
+    logger.info(event)
     jobid = 'unknown'
     try:
-        logger.info('CodePipeline Action Lambda event')
+        logger.info('CodePipeline Action Lambda Job ID')
         jobid =  event['CodePipeline.job']['id']
         logger.info('jobID ' + jobid)
 

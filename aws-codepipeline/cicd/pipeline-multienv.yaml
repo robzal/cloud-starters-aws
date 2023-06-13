@@ -56,7 +56,7 @@ Parameters:
         Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
     CodeBuildImage:
         Type: String
-        Default: "aws/codebuild/standard:7.0"
+        Default: "aws/codebuild/standard:6.0"
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String

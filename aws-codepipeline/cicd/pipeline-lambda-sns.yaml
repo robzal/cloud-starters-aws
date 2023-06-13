@@ -40,7 +40,7 @@ Parameters:
         Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
     CodeBuildImage:
         Type: String
-        Default: "aws/codebuild/standard:7.0"
+        Default: "aws/codebuild/standard:6.0"
         Description: Name of the image to use for the CodeBuild container
     CodeBuildCompute:
       Type: String
@@ -54,7 +54,7 @@ Parameters:
         Type: String
         Default: 238160719262-deployments
         Description: Name of S3 bucket for Lambda code bundles
-    PipelineStageFunctionBucketKey:
+    PipelineActionFunctionBucketKey:
         Type: String
         Default: 238160719262-pipelines
         Description: Name of S3 key for Stage Function Code Bundle
@@ -239,8 +239,13 @@ Resources:
                         Version: '1'
                       RunOrder: 1
                       Configuration:
-                        FunctionName: !Sub '${AppCode}-PipelineStageFunction'
-                        UserParameters: '#{Source.CommitId}'
+                        FunctionName: !Sub '${AppCode}-PipelineActionFunction'
+                        UserParameters: !Sub '{
+                          "PIPELINE_NAME": "${AppCode}-pipeline-lambda-sns", 
+                          "REPOSITORY_NAME": " ${CodeCommitRepoName}",
+                          "REPOSITORY_BRANCH": "${CodeCommitBranchName}", 
+                          "COMMIT_ID": "#{Source.CommitId}"
+                          }'                
                       InputArtifacts:
                         - Name: SourceZip
                 - Name: Build
@@ -295,7 +300,7 @@ Resources:
                         - Name: SourceZip
                       RunOrder: 1
 
-    PipelineStageFunctionRole:
+    PipelineActionFunctionRole:
       Type: AWS::IAM::Role
       Properties:
         AssumeRolePolicyDocument:
@@ -307,7 +312,7 @@ Resources:
                   - lambda.amazonaws.com
               Action:
                 - "sts:AssumeRole"
-        RoleName: !Sub "${AppCode}-PipelineStageFunction-Role"
+        RoleName: !Sub "${AppCode}-PipelineActionFunction-Role"
         ManagedPolicyArns:
           - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
         Path: /
@@ -322,27 +327,27 @@ Resources:
                     - codepipeline:PutJobFailureResult
                   Resource:
                     - '*'
-    PipelineStageFunctionLogGroup:
+    PipelineActionFunctionLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
-        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineStageFunction'
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-PipelineActionFunction'
         RetentionInDays: 14
-    PipelineStageFunction:
+    PipelineActionFunction:
       Type: AWS::Lambda::Function
-      DependsOn: PipelineStageFunctionLogGroup
+      DependsOn: PipelineActionFunctionLogGroup
       Properties:
         Code:
           S3Bucket: !Ref LambdaBucket
-          S3Key: !Ref PipelineStageFunctionBucketKey
+          S3Key: !Ref PipelineActionFunctionBucketKey
         Role:
           Fn::GetAtt:
-          - PipelineStageFunctionRole
+          - PipelineActionFunctionRole
           - Arn
         Handler: lambda.handler
         Runtime: python3.10
         MemorySize: 128
         Timeout: 10
-        FunctionName: !Sub '${AppCode}-PipelineStageFunction'
+        FunctionName: !Sub '${AppCode}-PipelineActionFunction'
         Environment:
           Variables:
             APP_CODE: !Ref AppCode
@@ -397,7 +402,13 @@ Resources:
             - aws.codepipeline
           detail-type:
             - 'CodePipeline Pipeline Execution State Change'
-            - 'CodePipeline State Execution State Change'
+            - 'CodePipeline Stage Execution State Change'
+          detail:
+            state:
+            - FAILED
+            - STARTED
+            - CANCELED
+            - SUCCEEDED
           resources:
             - !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-pipeline-lambda-sns'
         Targets: 

@@ -11,5 +11,5 @@ CodeCommitBranchName=${CODE_COMMIT_BRANCH}
 BuildRoleARN=${BUILD_ROLE_ARN}
 DeploymentRoleARNAdmin=${DEPLOYMENT_ROLE_ARN_ADMIN}
 LambdaBucket=${DEPLOYMENT_BUCKET}
-PipelineStageFunctionBucketKey=${STAGE_FUNCTION_BUCKET_KEY}
+PipelineActionFunctionBucketKey=${ACTION_FUNCTION_BUCKET_KEY}
 PipelineSNSFunctionBucketKey=${SNS_FUNCTION_BUCKET_KEY}
