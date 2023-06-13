@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates pre-requisite S3 buckets, policies, KMS key and cross account access for centralised deployment pipelines
+Parameters:
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  PipelineBucketKMSKeyAlias:
+      Type: String
+      Default: alias/devops-bucket-key
+      Description: KMS key alias used for codepipeline S3 bucket encryption
+  DevOpsAccountID:
+    Description: AWS AccountNumber for DevOps account
+    Type: String
+    Default: 238160719262
+  DeploymentAccountIds:
+    Description: AWS AccountNumbers for KMS access
+    Type: CommaDelimitedList
+    Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+  PipelineRoles:
+    Description: IAM Pipeline Deployment Roles for KMS access
+    Type: CommaDelimitedList
+    Default: "arn:aws:iam::238160719262:role/*-CodePipeline-Role"
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: ap-southeast-2
+Conditions:
+  IsDevOpsAccount: !Equals 
+    - !Ref DevOpsAccountID
+    - !Ref AWS::AccountId
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  IsPrimaryAndDevOpsAccount: !And 
+    - !Condition IsPrimaryRegion
+    - !Condition IsDevOpsAccount
+
+Resources:
+  PipelineKMSKey:
+    Type: AWS::KMS::Key
+    Condition: IsPrimaryAndDevOpsAccount
+    Properties:
+      Description: Used by Pipeline Role and Resource Deployment Roles for Pipeline Artifacts
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows delegated admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:*"
+            Resource: "*"
+          -
+            Sid: Allows delegated use of the key
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          -
+            Sid: Allows codepipeline use of the key
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Ref PipelineRoles
+          -
+            Sid: Allow delegated cross account use of the key
+            Effect: Allow
+            Principal:
+              AWS: !Ref DeploymentAccountIds
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  PipelineKMSKeyAlias:
+    Condition: IsPrimaryAndDevOpsAccount
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Ref PipelineBucketKMSKeyAlias
+      TargetKeyId: !Ref PipelineKMSKey
+  PipelineBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryAndDevOpsAccount
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-codepipeline'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 7
+  PipelineBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryAndDevOpsAccount
+    Properties: 
+      Bucket: !Ref PipelineBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Accounts access to pipeline bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${PipelineBucket.Arn}/*'
+              - !Sub '${PipelineBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Accounts access to pipeline bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${PipelineBucket.Arn}/*'
+              - !Sub '${PipelineBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccountIds
+  BuildBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimaryAndDevOpsAccount
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-builds'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+  BuildBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Condition: IsPrimaryAndDevOpsAccount
+    Properties: 
+      Bucket: !Ref BuildBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: Allows Cross Account access to build bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${BuildBucket.Arn}/*'
+              - !Sub '${BuildBucket.Arn}'
+            Principal: 
+              AWS:
+                - !Sub arn:aws:iam::${AWS::AccountId}:root
+          - 
+            Sid: Allows Cross Account access to build bucket
+            Action: 
+              - "s3:*"
+            Effect: "Allow"
+            Resource: 
+              - !Sub '${BuildBucket.Arn}/*'
+              - !Sub '${BuildBucket.Arn}'
+            Principal: 
+              AWS: !Ref DeploymentAccountIds
+Outputs:
+  PipelineBucket:
+    Condition: IsPrimaryAndDevOpsAccount
+    Value: !Ref PipelineBucket
+    Export:
+      Name: !Sub 'PipelineBucket'
+  BuildBucket:
+    Condition: IsPrimaryAndDevOpsAccount
+    Value: !Ref BuildBucket
+    Export:
+      Name: !Sub 'BuildBucket'

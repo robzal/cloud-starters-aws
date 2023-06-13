@@ -1,9 +1,0 @@
-Environment=${ENVIRONMENT}
-AppCode=${APP_CODE}
-TZ=${TZ}
-SubnetIds=${FARGATE_SUBNET_IDS}
-CreateAPIKey=${API_KEY_REQUIRED}
-TaskMemory=${TASK_MEMORY}
-TaskCPU=${TASK_CPU}
-TaskRepository=${DOCKER_REPOSITORY}
-TaskImage=${DOCKER_IMAGE}

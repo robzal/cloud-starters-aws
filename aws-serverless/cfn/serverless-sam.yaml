@@ -2,39 +2,30 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Description: 'The following CloudFormation deploys demo serverless resources'
 Parameters:
-  Environment:
-    Type: 'String'
-    Default: 'dev'
   AppCode:
     Type: 'String'
     Default: 'demo-serverless'
-  TZ:
+  Environment:
     Type: 'String'
-    Default: 'Australia/Melbourne'
-  SubnetIds:
+    Default: 'dev'
+  ClusterSubnet1:
+      Description: Subnet ID 1 for the ECS Cluster. It should not be publicly accessible
+      Type: String
+      Default: subnet-058d24196599afd43
+  ClusterSubnet2:
+      Description: Subnet ID 2 for the ECS Cluster. It should not be publicly accessible
+      Type: String
+      Default: subnet-0e4f320620d8a8706
+  ECSTaskImage:
     Type: 'String'
-    Default: 'subnet-d6f10a9e,subnet-513f4709,subnet-0e33fd68'
+    Default: '238160719262.dkr.ecr.ap-southeast-2.amazonaws.com/dataload:latest'
   CreateAPIKey:
     Type: 'String'
-    Default: 'true'
+    Default: 'false'
     AllowedValues: ['true', 'false']
-  TaskMemory:
-    Description: Amount of memory assigned to lambda and container tasks
+  APIDeploymentStage:
     Type: 'String'
-    Default: '512'
-    AllowedValues: ['512', '1024', '2048']
-  TaskCPU:
-    Description: Amount of cpu slice assigned to container tasks
-    Type: 'String'
-    Default: '256'
-    AllowedValues: ['256', '512', '1024']
-  TaskRepository:
-    Type: 'String'
-    Default: '238160719262.dkr.ecr.ap-southeast-2.amazonaws.com'
-  TaskImage:
-    Type: 'String'
-    Default: 'demo-serverless-demo-data-load:latest'
-
+    Default: 'v1'
 Conditions:
     DoAPIKEY: !Equals 
       - !Ref CreateAPIKey
@@ -46,7 +37,6 @@ Globals:
       Variables:
         ENVIRONMENT: !Sub '${Environment}'
         APP_CODE: !Sub '${AppCode}'
-        TZ: !Ref 'TZ'
 Resources:
   DataLoadBucket:
     Type: AWS::S3::Bucket
@@ -217,6 +207,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoadStateMachine'
+      RetentionInDays: 14
   DataLoadStateMachine:
     Type: 'AWS::StepFunctions::StateMachine'
     Properties:
@@ -233,7 +224,7 @@ Resources:
                       "Resource": "arn:aws:states:::ecs:runTask.waitForTaskToken",
                       "Parameters": {
                           "LaunchType": "FARGATE",
-                          "Cluster": "${ServerlessECSCluster}",
+                          "Cluster": "${ECSCluster}",
                           "PlatformVersion": "1.4.0",
                           "TaskDefinition": "${DataLoadTaskDefinition}",
                           "NetworkConfiguration": {
@@ -279,10 +270,10 @@ Resources:
               }
             }         
           -
-            ServerlessECSCluster: !GetAtt 'ServerlessECSCluster.Arn'
-            DataLoadTaskDefinition: !Ref 'DataLoadECSTaskDefinition'
-            NetworkA: !Select [0, !Split [',', !Sub "${SubnetIds}"]]
-            NetworkB: !Select [1, !Split [',', !Sub "${SubnetIds}"]]
+            ECSCluster: !GetAtt 'ECSCluster.Arn'
+            DataLoadTaskDefinition: !Ref 'ECSTaskDefinition'
+            NetworkA: !Ref ClusterSubnet1
+            NetworkB: !Ref ClusterSubnet2
       RoleArn: !GetAtt 'StatesExecutionRole.Arn'
       LoggingConfiguration:
         Destinations:
@@ -300,6 +291,8 @@ Resources:
       CompatibleRuntimes:
         - 'python3.10'
       LayerName: !Sub '${AppCode}-${Environment}-Utils'
+    Metadata:
+      BuildMethod: python3.10   # Required to have AWS SAM build this layer
   ModelsLayer:
     Type: 'AWS::Serverless::LayerVersion'
     Properties:
@@ -308,12 +301,14 @@ Resources:
       CompatibleRuntimes:
         - 'python3.10'
       LayerName: !Sub '${AppCode}-${Environment}-Models'
+    Metadata:
+      BuildMethod: python3.10   # Required to have AWS SAM build this layer
 
-  ServerlessECSCluster:
+  ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub "${AppCode}-${Environment}-cluster"  
-  ServerlessECSTaskExecutionRole:
+  ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -327,7 +322,7 @@ Resources:
               - "sts:AssumeRole"
       ManagedPolicyArns:
       - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-  DataLoadECSTaskRole:
+  ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -346,70 +341,53 @@ Resources:
       - !Ref 'DynamoReadWritePolicy'
       - !Ref 'CloudwatchPolicy'
       - !Ref 'StepFunctionPolicy'
-  DataLoadECSTaskDefinition:
+  ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties: 
       Family: !Sub ${AppCode}-${Environment}-data-load
-      ExecutionRoleArn: !Ref ServerlessECSTaskExecutionRole
-      TaskRoleArn: !Ref DataLoadECSTaskRole
-      Cpu: !Ref TaskCPU
-      Memory: !Ref TaskMemory
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref ECSTaskRole
+      Cpu: 256
+      Memory: 512
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
         - "FARGATE"
       ContainerDefinitions: 
         - 
-          Cpu: !Ref TaskCPU
+          Cpu: 256
           Environment: 
             - 
               Name: USER_TABLE_NAME
               Value: !Sub '${AppCode}-${Environment}-users'
-            - 
-              Name: TZ
-              Value: !Ref 'TZ'
-          Image: !Sub '${TaskRepository}/${TaskImage}'
+          Image: !Ref ECSTaskImage
           LogConfiguration: 
             LogDriver: awslogs
             Options:
-              awslogs-group: !Sub 'ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoad'
+              awslogs-group: !Sub 'ecs/${AppCode}-${Environment}-data-load'
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: "ecs"
-          Memory: !Ref TaskMemory
-          MemoryReservation: !Ref TaskMemory
-          Name: DataLoad
-  DataLoadECSLogGroup:
+          Memory: 512
+          MemoryReservation: 512
+          Name: !Sub ${AppCode}-${Environment}-data-load
+  ECSTaskLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub 'ecs/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-DataLoad'
-  DataLoadECRRepository:
-    Type: AWS::ECR::Repository
-    Properties: 
-      RepositoryName:  !Sub ${AppCode}-${Environment}-data-load
-      RepositoryPolicyText:
-        !Sub
-          - |-
-            {
-                "Version": "2008-10-17",
-                "Statement": [
-                    {
-                    "Sid": "new statement",
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "*"
-                    }
-                ]
-            }
-          -
-            AccountNumber: !Ref "AWS::AccountId"
+      LogGroupName: !Sub 'ecs/${AppCode}-${Environment}-data-load'
+      RetentionInDays: 14
 
+  DataLoadFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-data-load'
+      RetentionInDays: 14
   DataLoadFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-data-load'
       Runtime: 'python3.10'
-      CodeUri: '../src/lambdas/dataload/'
-      MemorySize: !Ref TaskMemory
+      CodeUri: '../src/functions/dataload/'
+      MemorySize: 256
       Timeout: 300
       Tracing: 'Active'
       Layers:
@@ -429,14 +407,19 @@ Resources:
           Properties:
             Bucket: !Ref DataLoadBucket
             Events: s3:ObjectCreated:*
+  DynamoStreamFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-dynamo-stream'
+      RetentionInDays: 14
   DynamoStreamFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-dynamo-stream'
       Runtime: 'python3.10'
-      CodeUri: '../src/lambdas/dynamostream/'
-      MemorySize: !Ref TaskMemory
+      CodeUri: '../src/functions/dynamostream/'
+      MemorySize: 256
       Timeout: 300
       Tracing: 'Active'
       Layers:
@@ -456,14 +439,19 @@ Resources:
             Stream: !GetAtt 'UsersDynamoDBTable.StreamArn'
             BatchSize: 5
             StartingPosition: 'LATEST'
+  UserAPIFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-UserAPIFunction'
+      RetentionInDays: 14
   UserAPIFunction:
     Type: 'AWS::Serverless::Function'
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-UserAPIFunction'
       Runtime: 'python3.10'
-      CodeUri: '../src/lambdas/user_api/'
-      MemorySize: !Ref TaskMemory
+      CodeUri: '../src/functions/user_api/'
+      MemorySize: 256
       Timeout: 300
       Tracing: 'Active'
       Policies:
@@ -512,20 +500,20 @@ Resources:
   UserAPILogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
-      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${AppCode}-${Environment}-UserAPI'
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${UserAPI}/${APIDeploymentStage}'
   UserAPI:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Sub '${AppCode}-${Environment}-UserAPI'
-      StageName: v1
-      # Auth:
-      #   # ApiKeyRequired: !If [ DoAPIKEY, true, false ]
-      #   UsagePlan:
-      #     CreateUsagePlan: PER_API
-      #     Description: Usage plan for this API
-      #     Throttle:
-      #       BurstLimit: 200
-      #       RateLimit: 100
+      StageName: !Ref APIDeploymentStage
+      Auth:
+        ApiKeyRequired: !If [ DoAPIKEY, true, false ]
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          Description: Usage plan for this API
+          Throttle:
+            BurstLimit: 200
+            RateLimit: 100
       AccessLogSetting:
         DestinationArn: !GetAtt UserAPILogGroup.Arn
         Format: >-
@@ -552,3 +540,7 @@ Resources:
         RoleArn: !GetAtt 
           - StatesExecutionRole
           - Arn
+
+Outputs:
+  UserAPI:
+    Value: !Sub https://${UserAPI}.execute-api.${AWS::Region}.amazonaws.com/${APIDeploymentStage}/users

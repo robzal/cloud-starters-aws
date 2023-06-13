@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Creates a Build and single Account Deploy Code Pipeline calling shell scripts to run build and deploy actions
+Parameters:
+    AppCode:
+        Type: String
+        Default: base
+        Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+    PipelineBucket:
+        Type: String
+        Default: 238160719262-pipelines
+        Description: Name of S3 bucket for CodePipeline to use
+    PipelineBucketKMSKeyAliasARN:
+        Type: String
+        Default: arn:aws:kms:ap-southeast-2:238160719262:alias/devops-bucket-key
+        Description: ARN of KMS key alias used for codepipeline S3 bucket encryption
+    CloudformationBucket:
+        Type: String
+        Default: 238160719262-cloudformation
+        Description: Name of S3 bucket for Cloudformation Templates
+    BuildBucket:
+        Type: String
+        Default: 238160719262-builds
+        Description: Name of S3 bucket for build artefacts 
+    CodeCommitRepoName:
+        Type: String
+        Default: pipeline-test
+        Description: Name of the CodeCommit Repo containing source to build / deploy with the pipeline
+    CodeCommitBranchName:
+        Type: String
+        Default: master
+        Description: Name of the CodeCommit Branch for trigger pipeline
+    DeploymentRoleARNAdmin:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+    BuildRoleARN:
+        Type: String
+        Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+        Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+    CodeBuildImage:
+        Type: String
+        Default: "aws/codebuild/standard:7.0"
+        Description: Name of the image to use for the CodeBuild container
+    CodeBuildCompute:
+      Type: String
+      Default: "BUILD_GENERAL1_SMALL"
+      Description: Compute Size to use for the CodeBuild container
+    CodeBuildType:
+      Type: String
+      Default: "LINUX_CONTAINER"
+      Description: Compute Architecture to use for the CodeBuild container
+Resources:
+    BuildProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-build-project'
+        RetentionInDays: 14
+    BuildProject:
+        Type: AWS::CodeBuild::Project
+        DependsOn: BuildProjectLogGroup
+        Properties:
+            Name: !Sub ${AppCode}-build-project
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: !Ref CodeBuildType
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: cicd/buildspec-sam.yaml
+    DeployProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-deploy-project'
+        RetentionInDays: 14
+    DeployProject:
+        Type: AWS::CodeBuild::Project
+        DependsOn: DeployProjectLogGroup
+        Properties:
+            Name: !Sub ${AppCode}-deploy-project
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: !Ref CodeBuildType
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: cicd/buildspec-deploy-sam.yaml
+    PipelinePolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: 
+                - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+            - Effect: Allow
+              Action: 
+                - 's3:*'
+              Resource:
+                - !Sub 'arn:aws:s3:::${PipelineBucket}/*'
+                - !Sub 'arn:aws:s3:::${PipelineBucket}'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}/*'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}'
+                - !Sub 'arn:aws:s3:::${BuildBucket}/*'
+                - !Sub 'arn:aws:s3:::${BuildBucket}'
+            - Effect: Allow
+              Action:
+                - 'iam:PassRole'
+              Resource: 
+                - '*'
+            - Effect: Allow
+              Action:
+                - 'codepipeline:PutJobSuccessResult'
+                - 'codepipeline:PutJobFailureResult'
+              Resource:
+                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-pipeline
+            - Effect: Allow
+              Action:
+                - 'codecommit:*'
+              Resource: 
+                - !Sub 'arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepoName}'
+            - Effect: Allow
+              Action:
+                - 'codebuild:StartBuild'
+                - 'codebuild:BatchGetBuilds'
+              Resource: 
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-build-project'
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-deploy-project'
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: 
+                - !Ref BuildRoleARN
+                - !Ref DeploymentRoleARNAdmin
+    PipelineRole:
+      Type: AWS::IAM::Role
+      Properties:
+          RoleName: !Sub '${AppCode}-CodePipeline-Role'
+          AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codepipeline.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codebuild.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - lambda.amazonaws.com
+          Path: /
+          ManagedPolicyArns:
+              - !Ref PipelinePolicy
+    Pipeline:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
+                  Type: KMS
+            Name: !Sub ${AppCode}-pipeline
+            RoleArn: !GetAtt PipelineRole.Arn
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: Source
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeCommit
+                        Version: 1
+                      Configuration:
+                        RepositoryName: !Ref CodeCommitRepoName
+                        BranchName: !Ref CodeCommitBranchName
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: Build
+                  Actions:
+                    - Name: Build
+                      Namespace: build
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref BuildProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"BUILD_ROLE","value":"${BuildRoleARN}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"shared","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: Approve-Deployment
+                  Actions:
+                    - Name: Approve-Deployment
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: Deploy
+                  Actions:
+                    - Name: DeployAdmin
+                      Namespace: deployadmin
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1

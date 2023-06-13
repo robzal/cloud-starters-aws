@@ -1,0 +1,7 @@
+AppCode=${APP_CODE}
+Environment=${ENVIRONMENT}
+ClusterSubnet1=${CLUSTER_SUBNET1}
+ClusterSubnet2=${CLUSTER_SUBNET2}
+ECSTaskImage=${DATALOAD_TASK_IMAGE}
+CreateAPIKey=${API_KEY_REQUIRED}
+APIDeploymentStage=${API_DEPLOYMENT_STAGE}
