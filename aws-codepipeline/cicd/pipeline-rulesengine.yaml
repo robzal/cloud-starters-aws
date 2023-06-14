@@ -129,10 +129,6 @@ Resources:
                 - logs:PutLogEvents
               Resource: arn:aws:logs:*:*:*
             - Effect: Allow
-              Action:
-                - ecr:InitiateLayerUpload
-              Resource: arn:aws:ecr:ap-southeast-2:*:repository/*
-            - Effect: Allow
               Action: 
                 - 's3:*'
               Resource:

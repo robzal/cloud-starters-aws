@@ -244,7 +244,8 @@ Resources:
                           "PIPELINE_NAME": "${AppCode}-pipeline-lambda-sns", 
                           "REPOSITORY_NAME": " ${CodeCommitRepoName}",
                           "REPOSITORY_BRANCH": "${CodeCommitBranchName}", 
-                          "COMMIT_ID": "#{Source.CommitId}"
+                          "COMMIT_ID": "#{Source.CommitId}",
+                          "EXECUTION_ID": "#{codepipeline.PipelineExecutionId}"
                           }'                
                       InputArtifacts:
                         - Name: SourceZip
@@ -267,8 +268,6 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
-                      # OutputArtifacts:
-                      #   - Name: PreDeployZip
                       RunOrder: 1
                 - Name: Approve-Deployment
                   Actions:
@@ -396,7 +395,7 @@ Resources:
     CodePipelineListener: 
       Type: AWS::Events::Rule
       Properties: 
-        Description: "Code Commit Listener"
+        Description: "Code Pipeline Listener"
         EventPattern:
           source:
             - aws.codepipeline
@@ -414,9 +413,6 @@ Resources:
         Targets: 
           - 
             Arn: !Ref PipelineSNSTopic
-              # Fn::GetAtt: 
-              #   - PipelineSNSTopic
-              #   - Arn
             Id: "PipelineSNSTopic"
     CodePipelineListenerInvokePermission:
       Type: AWS::Lambda::Permission
