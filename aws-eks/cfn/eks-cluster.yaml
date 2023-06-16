@@ -16,11 +16,13 @@ Parameters:
     Description: The desired name of your AWS EKS Cluster.
   EKSClusterVersion:
     Type: String
-    Default: 1.21
+    Default: 1.25
     AllowedValues: 
-      - 1.19
-      - 1.20
-      - 1.21
+      - 1.23
+      - 1.24
+      - 1.25
+      - 1.26
+      - 1.27
     Description: The desired version of your AWS EKS Cluster.
   EKSClusterSubnets:
     Type: CommaDelimitedList
@@ -28,6 +30,9 @@ Parameters:
   EKSClusterSecGroups:
     Type: CommaDelimitedList
     Default: sg-0dfcbfcecce3f0460  
+  EKSClusterPublicIPAllowList:
+    Type: CommaDelimitedList
+    Default: 110.174.252.143/32 
   EKSNodeSubnets:
     Type: CommaDelimitedList
     Default: subnet-040cad91a830c3937  
@@ -325,6 +330,38 @@ Resources:
             - elasticloadbalancing:ModifyRule
             Resource: "*"
 
+  # EKSClusterSecurityGroup:
+  #     Type: 'AWS::EC2::SecurityGroup'
+  #     Properties:
+  #         GroupName: !Sub '${AppCode}-${Environment}-eks-cluster-sg'
+  #         GroupDescription: Enable ALB and local VPC access to the ECS Task
+  #         VpcId: !Ref VPCID
+  #         SecurityGroupIngress:
+  #             - IpProtocol: '-1'
+  #               FromPort: !Ref ECSTaskPort
+  #               ToPort: !Ref ECSTaskPort
+  #               SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+  #             - IpProtocol: '-1'
+  #               FromPort: !Ref ECSTaskPort
+  #               ToPort: !Ref ECSTaskPort
+  #               CidrIp: !Ref VPCCIDRBlock
+  #         SecurityGroupEgress:
+  #             - IpProtocol: '-1'
+  #               CidrIp: 0.0.0.0/0
+
+
+  # CidrIp: String
+  # CidrIpv6: String
+  # Description: String
+  # FromPort: Integer
+  # IpProtocol: String
+  # SourcePrefixListId: String
+  # SourceSecurityGroupId: String
+  # SourceSecurityGroupName: String
+  # SourceSecurityGroupOwnerId: String
+  # ToPort: Integer
+
+
   EKSCluster:
     Type: AWS::EKS::Cluster
     Properties:
@@ -339,6 +376,14 @@ Resources:
       ResourcesVpcConfig:
         SecurityGroupIds: !Ref EKSClusterSecGroups
         SubnetIds: !Ref EKSClusterSubnets
+        EndpointPublicAccess: true
+        EndpointPrivateAccess: true
+        PublicAccessCidrs: !Ref EKSClusterPublicIPAllowList
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
     DependsOn: [EKSClusterInstanceRole]
   EKSNodeInstanceRole:
     Type: AWS::IAM::Role

@@ -1,0 +1,2 @@
+--build-arg ORG_CODE=${ORG_CODE}
+--build-arg APP_CODE=${APP_CODE}

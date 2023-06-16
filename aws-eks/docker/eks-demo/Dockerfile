@@ -1,0 +1,8 @@
+# escape=\
+FROM nginxdemos/hello
+
+ARG APP_CODE
+ENV APP_CODE=$APP_CODE
+
+ARG ORG_CODE
+ENV ORG_CODE=$ORG_CODE
