@@ -33,12 +33,21 @@ Parameters:
   EKSClusterPublicIPAllowList:
     Type: CommaDelimitedList
     Default: 110.174.252.143/32 
+  EKSClusterRoleName:
+    Type: String
+    Default: eks-demo-admin-EKS-Cluster-Role 
   EKSNodeSubnets:
     Type: CommaDelimitedList
     Default: subnet-040cad91a830c3937  
   EKSNodeSecGroups:
     Type: CommaDelimitedList
     Default: sg-0a2d1bec47f4b14c7 
+  EKSNodeInstanceRoleName:
+    Type: String
+    Default: eks-demo-admin-EKS-Instance-Role 
+  EKSLoadBalancerRoleName:
+    Type: String
+    Default: eks-demo-admin-EKS-LoadBal-Role 
   EKSLinuxNodeGroupName:
     Type: String
     Default: LinuxNodeGroup
@@ -122,7 +131,7 @@ Resources:
           }
         ]
       }
-  EKSClusterInstanceRole:
+  EKSClusterRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -135,7 +144,7 @@ Resources:
               - lambda.amazonaws.com
             Action:
             - 'sts:AssumeRole'
-      RoleName: !Sub "${AppCode}-${Environment}-Cluster-Role"
+      RoleName: !Ref EKSClusterRoleName
       Policies:
         - PolicyName: EKS-KMS-Secrets
           PolicyDocument:
@@ -152,7 +161,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       Description: "IAM Role for EKS to use when managing Load Balancer resources"
-      RoleName: !Sub '${AppCode}-${Environment}-LoadBal-Role'
+      RoleName: !Ref EKSLoadBalancerRoleName
       AssumeRolePolicyDocument: !Sub
         - |
           {
@@ -361,14 +370,18 @@ Resources:
   # SourceSecurityGroupOwnerId: String
   # ToPort: Integer
 
-
+  EKSClusterLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+          LogGroupName: !Sub '/aws/eks/eks-demo-admin-Cluster/cluster'
+          RetentionInDays: 14
   EKSCluster:
     Type: AWS::EKS::Cluster
     Properties:
       Name: !Ref EKSClusterName
       Version: !Ref EKSClusterVersion
       RoleArn:
-        "Fn::GetAtt": ["EKSClusterInstanceRole", "Arn"]
+        "Fn::GetAtt": ["EKSClusterRole", "Arn"]
       EncryptionConfig: 
         - Resources: [ secrets ]
           Provider:
@@ -384,7 +397,7 @@ Resources:
           EnabledTypes:
             - Type: api
             - Type: audit
-    DependsOn: [EKSClusterInstanceRole]
+    DependsOn: [EKSClusterRole, EKSClusterLogGroup]
   EKSNodeInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -397,7 +410,7 @@ Resources:
                 - ec2.amazonaws.com
             Action:
               - "sts:AssumeRole"
-      RoleName: !Sub "${AppCode}-${Environment}-Instance-Role"
+      RoleName: !Ref EKSNodeInstanceRoleName
       ManagedPolicyArns:
         - !Sub "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
         - !Sub "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
@@ -498,6 +511,12 @@ Resources:
         MaxBatchSize: "1"
         MinInstancesInService: !Ref EKSWindowsNodesMin
         PauseTime: PT5M
+  # EKSClusterFingerprintFunctionLogGroup:
+  #     Type: 'AWS::Logs::LogGroup'
+  #     Properties:
+  #         LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Cluster-Fingerprint-Function'
+  #         RetentionInDays: 14
+
   EKSClusterFingerprintFunction:
     Type: AWS::Lambda::Function 
     Properties:
@@ -508,7 +527,7 @@ Resources:
             Fn::Sub: "${LambdaFingerprintCodeFile}"
       Role:
         Fn::GetAtt:
-        - EKSClusterInstanceRole
+        - EKSClusterRole
         - Arn
       Handler: lambda.handler
       Runtime: python3.10

@@ -50,6 +50,18 @@ Parameters:
       Type: String
       Default: "LINUX_CONTAINER"
       Description: Compute Architecture to use for the CodeBuild container
+    VPCID:
+      Type: String
+      Default: "vpc-8bfcb8ec"
+      Description: The VPC for PostDeploy CodeBuild project to run in
+    VPCSubnetIDs:
+      Type: CommaDelimitedList
+      Default: "subnet-0c24fe54"
+      Description: The Subnets for PostDeploy CodeBuild project to run in. These should be private and use NATGW egress
+    VPCSecGroupID:
+      Type: String
+      Default: "sg-9a64c0e2"
+      Description: The SecurityGroup for PostDeploy CodeBuild project to use. It needs Egress Only
 Resources:
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
@@ -105,6 +117,11 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec-deploy.yaml
+            VpcConfig:
+              VpcId: !Ref VPCID
+              Subnets: !Ref VPCSubnetIDs
+              SecurityGroupIds: 
+                - !Ref VPCSecGroupID
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -157,8 +174,21 @@ Resources:
               Resource: 
                 - !Ref BuildRoleARN
                 - !Ref DeploymentRoleARNAdmin
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+              Resource: 
+                - "*"
     PipelineRole:
       Type: AWS::IAM::Role
+      DependsOn: PipelinePolicy
       Properties:
           RoleName: !Sub '${AppCode}-CodePipeline-Role'
           AssumeRolePolicyDocument:

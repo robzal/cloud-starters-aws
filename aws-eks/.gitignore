@@ -34,4 +34,5 @@ zz.py
 .params*
 .template-out.yaml
 .k8s*
+.aws*
 kubectl
