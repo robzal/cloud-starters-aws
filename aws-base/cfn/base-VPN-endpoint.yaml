@@ -71,6 +71,7 @@
       Type: 'AWS::Logs::LogGroup'
       Properties:
         LogGroupName: !Sub 'aws-vpc-client-endpoint-logs-${AWS::AccountId}'
+        RetentioninDays: 30
     VpnClientEndpointAssociation:
       Type: AWS::EC2::ClientVpnTargetNetworkAssociation
       Condition: ShouldCreateVPN

@@ -50,6 +50,18 @@ Parameters:
       Type: String
       Default: "LINUX_CONTAINER"
       Description: Compute Architecture to use for the CodeBuild container
+    VPCID:
+      Type: String
+      Default: ""
+      Description: The VPC for CodeBuild projects to run in
+    VPCSubnetIDs:
+      Type: CommaDelimitedList
+      Default: ""
+      Description: The Subnets for CodeBuild projects to run in. These should be private and use NATGW egress
+    VPCSecGroupID:
+      Type: String
+      Default: ""
+      Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
     LambdaBucket:
         Type: String
         Default: 238160719262-deployments
@@ -62,6 +74,11 @@ Parameters:
         Type: String
         Default: 238160719262-pipelines
         Description: Name of S3 key for SNS Function Code Bundle
+Conditions:
+  UseVPC: !Not
+    - !Equals
+      - !Ref  VPCID
+      - ""
 Resources:
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
@@ -90,6 +107,15 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     DeployProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
@@ -117,6 +143,15 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec-deploy.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -174,8 +209,21 @@ Resources:
                 - lambda:InvokeFunction
               Resource: 
                 - '*'
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+              Resource: 
+                - "*"
     PipelineRole:
       Type: AWS::IAM::Role
+      DependsOn: PipelinePolicy
       Properties:
           RoleName: !Sub '${AppCode}-CodePipeline-Role'
           AssumeRolePolicyDocument:
@@ -268,6 +316,8 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: BuildZip
                       RunOrder: 1
                 - Name: Approve-Deployment
                   Actions:
@@ -293,10 +343,11 @@ Resources:
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
                           {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
-                        - Name: SourceZip
+                        - Name: BuildZip
                       RunOrder: 1
 
     PipelineActionFunctionRole:

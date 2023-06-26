@@ -208,6 +208,7 @@ Resources:
         Type: 'AWS::Logs::LogGroup'
         Properties:
             LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-ALB-Lambda'
+            RetentionInDays: 14
     LambdaFunction:
         Type: AWS::Lambda::Function
         DependsOn: LambdaFunctionLogGroup
@@ -305,6 +306,7 @@ Resources:
         Type: 'AWS::Logs::LogGroup'
         Properties:
             LogGroupName: !Sub '/ecs/${AppCode}-${Environment}-fargate-container'
+            RetentionInDays: 14
     TaskDefinition:
         Type: AWS::ECS::TaskDefinition
         DependsOn: ListenerRuleFargate

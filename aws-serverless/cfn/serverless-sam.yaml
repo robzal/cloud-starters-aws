@@ -500,7 +500,8 @@ Resources:
   UserAPILogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
-      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${UserAPI}/${APIDeploymentStage}'
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${UserAPI}/${APIDeploymentStage}'        
+      RetentionInDays: 14
   UserAPI:
     Type: AWS::Serverless::Api
     Properties:

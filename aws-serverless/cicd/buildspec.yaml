@@ -4,7 +4,7 @@ env:
   variables:
     BUILD_BUCKET: ""
     CLOUDFORMATION_BUCKET: ""
-    DEPLOYMENT_ROLE: ""
+    BUILD_ROLE: ""
     APP_CODE: ""
     ENVIRONMENT: ""
     REGION: ""
@@ -19,14 +19,17 @@ phases:
     commands:
       - echo Configuring AWS CLI
       - aws --version
-      - sam --version
         
   build:
     commands:
-      - echo Deploying $APP_CODE stacks to $ENVIRONMENT Account using $DEPLOYMENT_ROLE
-      - ./deploy-sam.sh $REGION $ENVIRONMENT default $DEPLOYMENT_ROLE
+      - echo Running Build tasks for $APP_CODE 
+      - ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
 
   post_build:
     commands:
       - export PARAMS=Build-1234
-      - echo Deployment completed on `date`
+      - echo Build completed on `date`
+
+artifacts:
+  files:
+    - '**/*'

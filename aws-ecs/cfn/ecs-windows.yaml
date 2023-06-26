@@ -350,6 +350,7 @@ Resources:
         Type: 'AWS::Logs::LogGroup'
         Properties:
             LogGroupName: !Sub '/ecs/${AppCode}-${Environment}-windows-container'
+            RetentionInDays: 14
     TaskDefinition:
         Type: AWS::ECS::TaskDefinition
         DependsOn: ListenerRule

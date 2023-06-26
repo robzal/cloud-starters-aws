@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a single ECR repo with trust policy
+Parameters:
+  RepoName:
+      Description: Name for the Repository
+      Type: String
+      Default: ecr-demo
+  DeploymentAccountIds:
+      Description: Account IDs to allow delegated access to
+      Type: CommaDelimitedList
+      Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+Resources:
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Ref RepoName
+      RepositoryPolicyText: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Sid: AllowPushPull
+            Effect: Allow
+            Principal: 
+              AWS: !Ref DeploymentAccountIds
+            Action: 
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+              - "ecr:BatchCheckLayerAvailability"
+              - "ecr:PutImage"
+              - "ecr:InitiateLayerUpload"
+              - "ecr:UploadLayerPart"
+              - "ecr:CompleteLayerUpload"

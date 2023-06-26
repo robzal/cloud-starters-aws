@@ -65,6 +65,7 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-FileDownloader-Function'
+      RetentionInDays: 14
   FileDownloaderFunction:
     Type: AWS::Lambda::Function 
     Properties:
@@ -98,6 +99,7 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Lambda1-Function'
+      RetentionInDays: 14
   Lambda1Function:
     Type: AWS::Lambda::Function 
     DependsOn: Lambda1Download
@@ -133,6 +135,7 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Lambda2-Function'
+      RetentionInDays: 14
   Lambda2Function:
     Type: AWS::Lambda::Function 
     DependsOn: Lambda2Download

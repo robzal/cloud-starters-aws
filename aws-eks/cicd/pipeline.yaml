@@ -52,16 +52,21 @@ Parameters:
       Description: Compute Architecture to use for the CodeBuild container
     VPCID:
       Type: String
-      Default: "vpc-8bfcb8ec"
-      Description: The VPC for PostDeploy CodeBuild project to run in
+      Default: ""
+      Description: The VPC for CodeBuild projects to run in
     VPCSubnetIDs:
       Type: CommaDelimitedList
-      Default: "subnet-0c24fe54"
-      Description: The Subnets for PostDeploy CodeBuild project to run in. These should be private and use NATGW egress
+      Default: ""
+      Description: The Subnets for CodeBuild projects to run in. These should be private and use NATGW egress
     VPCSecGroupID:
       Type: String
-      Default: "sg-9a64c0e2"
-      Description: The SecurityGroup for PostDeploy CodeBuild project to use. It needs Egress Only
+      Default: ""
+      Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
+Conditions:
+  UseVPC: !Not
+    - !Equals
+      - !Ref  VPCID
+      - ""
 Resources:
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
@@ -90,6 +95,15 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     DeployProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
@@ -118,10 +132,14 @@ Resources:
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec-deploy.yaml
             VpcConfig:
-              VpcId: !Ref VPCID
-              Subnets: !Ref VPCSubnetIDs
-              SecurityGroupIds: 
-                - !Ref VPCSecGroupID
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -230,6 +248,7 @@ Resources:
                 - Name: Source
                   Actions:
                     - Name: Source
+                      Namespace: Source
                       ActionTypeId:
                         Category: Source
                         Owner: AWS
@@ -260,8 +279,8 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: SourceZip
-                      # OutputArtifacts:
-                      #   - Name: PreDeployZip
+                      OutputArtifacts:
+                        - Name: BuildZip
                       RunOrder: 1
                 - Name: Approve-Deployment
                   Actions:
@@ -287,8 +306,9 @@ Resources:
                           {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
                           {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
                           {"name":"ENVIRONMENT","value":"admin","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
                           ]'
                       InputArtifacts:
-                        - Name: SourceZip
+                        - Name: BuildZip
                       RunOrder: 1

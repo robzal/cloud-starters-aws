@@ -36,6 +36,18 @@ Parameters:
       Type: String
       Default: "LINUX_CONTAINER"
       Description: Compute Architecture to use for the CodeBuild container
+    VPCID:
+      Type: String
+      Default: ""
+      Description: The VPC for CodeBuild projects to run in
+    VPCSubnetIDs:
+      Type: CommaDelimitedList
+      Default: ""
+      Description: The Subnets for CodeBuild projects to run in. These should be private and use NATGW egress
+    VPCSecGroupID:
+      Type: String
+      Default: ""
+      Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
     CodeCommitRepoName:
         Type: String
         Default: pipeline-test
@@ -88,6 +100,11 @@ Parameters:
         Type: String
         Default: 238160719262-pipeline-events
         Description: Name of S3 bucket for commit trigger files         
+Conditions:
+  UseVPC: !Not
+    - !Equals
+      - !Ref  VPCID
+      - ""
 
 Resources:
     BuildProjectLogGroup:
@@ -116,6 +133,15 @@ Resources:
             Source: 
                 Type: CODEPIPELINE
                 BuildSpec: cicd/buildspec-rulesengine.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -173,8 +199,21 @@ Resources:
                 - !Ref DevAccountDeploymentRoleARN
                 - !Ref TestAccountDeploymentRoleARN
                 - !Ref ProdAccountDeploymentRoleARN
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+              Resource: 
+                - "*"
     PipelineRole:
       Type: AWS::IAM::Role
+      DependsOn: PipelinePolicy
       Properties:
           RoleName: !Sub '${AppCode}-CodePipeline-Role'
           AssumeRolePolicyDocument:

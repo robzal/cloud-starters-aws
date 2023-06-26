@@ -50,6 +50,23 @@ Parameters:
       Type: String
       Default: "LINUX_CONTAINER"
       Description: Compute Architecture to use for the CodeBuild container
+    VPCID:
+      Type: String
+      Default: ""
+      Description: The VPC for CodeBuild projects to run in
+    VPCSubnetIDs:
+      Type: CommaDelimitedList
+      Default: ""
+      Description: The Subnets for CodeBuild projects to run in. These should be private and use NATGW egress
+    VPCSecGroupID:
+      Type: String
+      Default: ""
+      Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
+Conditions:
+  UseVPC: !Not
+    - !Equals
+      - !Ref  VPCID
+      - ""
 Resources:
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
@@ -77,7 +94,16 @@ Resources:
             ServiceRole: !GetAtt PipelineRole.Arn
             Source: 
                 Type: CODEPIPELINE
-                BuildSpec: cicd/buildspec-sam.yaml
+                BuildSpec: cicd/buildspec.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     DeployProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
@@ -104,7 +130,16 @@ Resources:
             ServiceRole: !GetAtt PipelineRole.Arn
             Source: 
                 Type: CODEPIPELINE
-                BuildSpec: cicd/buildspec-deploy-sam.yaml
+                BuildSpec: cicd/buildspec-deploy.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
     PipelinePolicy:
       Type: AWS::IAM::ManagedPolicy
       Properties:
@@ -157,8 +192,21 @@ Resources:
               Resource: 
                 - !Ref BuildRoleARN
                 - !Ref DeploymentRoleARNAdmin
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+              Resource: 
+                - "*"
     PipelineRole:
       Type: AWS::IAM::Role
+      DependsOn: PipelinePolicy
       Properties:
           RoleName: !Sub '${AppCode}-CodePipeline-Role'
           AssumeRolePolicyDocument:
@@ -215,7 +263,7 @@ Resources:
                 - Name: Build
                   Actions:
                     - Name: Build
-                      Namespace: Build
+                      Namespace: build
                       ActionTypeId:
                         Category: Build
                         Owner: AWS

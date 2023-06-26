@@ -11,9 +11,9 @@ load_env () {
 
     export VERSION=`git rev-parse --short=7 HEAD 2>/dev/null; true`
     if [[ -z "$VERSION" ]]; then
-        export VERSION=${CODEBUILD_RESOLVED_SOURCE_VERSION: -7}
+        export VERSION=${CODEBUILD_RESOLVED_SOURCE_VERSION: 0:7}
         if [[ -z "$VERSION" ]]; then
-            export VERSION=${COMMIT_ID: -7}
+            export VERSION=${COMMIT_ID: 0:7}
             if [[ -z "$VERSION" ]]; then
                 export VERSION=1.0.0
             fi
@@ -171,7 +171,6 @@ upload_docker () {
     D_DIR=$PROJECT_ROOT/docker
 
     echo Logging in to Amazon ECR...
-    #echo $(aws ecr get-login-password --region $1 --profile $2 | docker login --username AWS --password-stdin $3)
     docker login -u AWS -p $(aws ecr get-login-password --region $1 --profile $2) $3
 
     for d in $(find $D_DIR -type d -mindepth 1 -maxdepth 1 | awk -F/ '{print $NF}'); do 
@@ -187,8 +186,27 @@ upload_docker () {
         fi
 
         echo Make sure the ECR Repo is there...
-        echo aws ecr create-repository --repository-name=$IMAGE_NAME
-        aws ecr create-repository --repository-name=$IMAGE_NAME  --profile $2 2>/dev/null; true
+        set +e        
+        output=$(aws ecr describe-repositories --repository-names ${IMAGE_NAME} --region $1 --profile $2  2>&1)
+        if [ $? -ne 0 ]; then
+            if echo ${output} | grep -q RepositoryNotFoundException; then
+                echo -e "$IMAGE_NAME Repo doesn't exist"
+                echo -e "Creating $IMAGE_NAME via Cloudformation Stack now"
+                set -e
+                aws cloudformation deploy \
+                    --template-file ./cicd/ecr-repo.yaml \
+                    --stack-name ecr-repo-$IMAGE_NAME \
+                    --parameter-overrides RepoName=$IMAGE_NAME DeploymentAccountIds=$DEPLOYMENT_ACCOUNTS \
+                    --region $1 \
+                    --profile $2
+            else
+                >&2 echo ${output}
+                exit
+            fi
+        else
+            echo -e "$IMAGE_NAME Repo exists"
+        fi
+        set -e
         echo Pushing the Docker image...
         echo docker push $ECR_REGISTRY/$IMAGE_NAME:$VERSION
         docker push $ECR_REGISTRY/$IMAGE_NAME:$VERSION

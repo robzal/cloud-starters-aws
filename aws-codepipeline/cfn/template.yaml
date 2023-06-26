@@ -14,3 +14,4 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       LogGroupName: !Sub '${AppCode}-${Environment}-LogGroup'
+      RetentionInDays: 14

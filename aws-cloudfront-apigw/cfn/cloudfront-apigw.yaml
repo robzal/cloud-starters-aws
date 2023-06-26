@@ -229,6 +229,7 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Properties:
       LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-APIGW-Demo-Lambda'
+      RetentionInDays: 14
   APIGWDemoFunction:
     Type: AWS::Lambda::Function
     DependsOn: APIGWDemoFunctionLogGroup
@@ -304,6 +305,7 @@ Resources:
     Condition: IsPrimaryRegion
     Properties:
       LogGroupName: !Sub 'API-Gateway-Execution-Logs_${AppCode}-${Environment}-APIGW-Demo'
+      RetentionInDays: 14
 
   APIGWRestApi:
     Type: AWS::ApiGateway::RestApi
