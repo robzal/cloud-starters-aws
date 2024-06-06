@@ -1,0 +1,12 @@
+Environment=${ENVIRONMENT}
+AppCode=${APP_CODE}
+ImageBuilderLogBucket=${BUILD_LOG_BUCKET}
+ImageBuilderLogBucketKMSKeyArn=${BUILD_LOG_BUCKET_KMS_KEY_ARN}
+ImageName=${WINDOWS_IMAGE_NAME}
+ImageVersion=${WINDOWS_IMAGE_VERSION}
+ParentImage=${WINDOWS_PARENT_AMI}
+BuildInstanceType=${WINDOWS_INSTANCE_TYPE}
+BuildInstanceKey=${WINDOWS_INSTANCE_KEY}
+BuildInstanceSubnet=${VPC_SUBNET}
+BuildInstanceSecGroups=${VPC_SECGROUPS}
+PrimaryRegion=${PRIMARY_REGION}

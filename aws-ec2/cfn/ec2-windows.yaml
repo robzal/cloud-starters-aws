@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+    Deploy  EC2 Windows instance deployed in public subnet with restrictive sec group
+
+Parameters:
+
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-ecs
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: tools
+  EC2InstanceType:
+      Description: Instance type for the EC2 Instance
+      Type: String
+      Default: t3.large
+  EC2InstanceAMI:
+      Description: Instance AMI for the EC2 Instance (Non Fargate)
+      Type: String
+      # aws ssm get-parameters-by-path --path /aws/service/ami-windows-latest/  --region $region
+      Default: ami-0e620a1299bdb9071
+  EC2InstanceKey:
+      Type: AWS::EC2::KeyPair::KeyName
+      Default: AWS-robzal
+  EC2TaskPort:
+      Description: The port number of the EC2 Windows service (must be different to fargate service)
+      Type: Number
+      Default: 80
+  VPCID:
+      Description: VPCID to deploy this infrastructure into
+      Type: String
+      Default: vpc-02dee7d733d73e02c
+  VPCCIDRBlock:
+      Description: CIDR Block for VPC, for use in security group rules
+      Type: String
+      Default: 10.0.0.0/16
+  AdminIPAddressCIDR:
+      Description: IP Address (CIDR format), open to admin for use in security group rules
+      Type: String
+      Default: 1.2.3.4/32
+  InstanceSubnet:
+      Description: Subnet ID 1 for Instance
+      Type: String
+      Default: subnet-0650a76442c640904
+  DNSAliasZone: 
+      Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
+      Type: String
+      Default: aws.worxdesign.com.
+  DNSAliasHost:
+      Description: (Optional) Alias Name for the ELB being created (minus the zone / domain)
+      Type: String
+      Default: ""
+  PrimaryRegion:
+      Description: Primary Region ID to detect where to deploy account wide resources.
+      Type: String
+      Default: "ap-southeast-2"
+
+Conditions:
+    DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
+    IsPrimaryRegion: !Equals 
+        - !Ref PrimaryRegion
+        - !Ref AWS::Region
+
+Resources:
+
+  # Instance/Auto Scaling Group Resources
+  InstanceSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+          GroupName: !Sub '${AppCode}-${Environment}-Windows-Instance-SG'
+          GroupDescription: Enable HTTP and HTTPS requests through to ALB
+          VpcId: !Ref VPCID
+          SecurityGroupIngress:
+              - IpProtocol: 'tcp'
+                FromPort: !Ref EC2TaskPort
+                ToPort: !Ref EC2TaskPort
+                CidrIp: !Ref VPCCIDRBlock
+              - IpProtocol: 'tcp'
+                FromPort: 3389
+                ToPort: 3389
+                CidrIp: !Ref VPCCIDRBlock
+              - IpProtocol: 'tcp'
+                FromPort: 3389
+                ToPort: 3389
+                CidrIp: !Ref AdminIPAddressCIDR
+              - IpProtocol: 'tcp'
+                FromPort: !Ref EC2TaskPort
+                ToPort: !Ref EC2TaskPort
+                # CidrIp: 0.0.0.0/0
+                CidrIp: !Ref AdminIPAddressCIDR
+          SecurityGroupEgress:
+              - IpProtocol: '-1'
+                CidrIp: 0.0.0.0/0
+  InstanceRole:
+    Type: "AWS::IAM::Role"
+    Condition: IsPrimaryRegion
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+              - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore          
+  InstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Condition: IsPrimaryRegion
+    Properties: 
+      Path: "/"
+      Roles: 
+        - 
+          Ref: "InstanceRole"
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EC2InstanceAMI
+      InstanceType: !Ref EC2InstanceType
+      KeyName: !Ref EC2InstanceKey
+      # SecurityGroupIds:
+      #   - !Ref InstanceSecurityGroup
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref InstanceSecurityGroup
+          SubnetId: !Ref InstanceSubnet
+      BlockDeviceMappings: 
+        # root volume
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+            VolumeSize: "50" 
+        # secondary volume - adjust as needed       
+        - DeviceName: "xvdf"
+          Ebs: 
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+            VolumeSize: "50"        
+      Tags:
+        - Key: Name
+          Value: !Sub ${AppCode}-${Environment}-Windows-Instance       
+      UserData: 
+        'Fn::Base64': !Sub |
+                  <powershell>
+                    if ((Get-WindowsFeature Web-Server).InstallState -eq "Installed") {
+                      Write-Host "IIS is installed, stopping and starting IIS"
+                      try
+                      {
+                        Start-Process "iisreset.exe" -NoNewWindow -Wait
+                      }
+                      catch
+                      {
+                        Write-Output "An error occured, Completing Lifecycle Action with ABANDON."
+                      }
+                    } 
+                    else {
+                      Write-Host "IIS is not installed, installing, stopping and starting IIS."
+                      try
+                      {
+                        Install-WindowsFeature -name Web-Server -IncludeManagementTools
+                        Start-Process "iisreset.exe" -NoNewWindow -Wait
+                      }
+                      catch
+                      {
+                        Write-Output "An error occured, Completing Lifecycle Action with ABANDON."
+                      }
+                    }
+                  </powershell>
+                  <persist>true</persist>
+
+  # Route53:
+  #         Type: AWS::Route53::RecordSetGroup
+  #         Condition: DoDNS
+  #         Properties:
+  #             Comment:  Alias for the API Service ELB.
+  #             HostedZoneName: !Ref DNSAliasZone
+  #             RecordSets:
+  #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+  #               Type: A
+  #               AliasTarget:
+  #                 HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+  #                 DNSName: !GetAtt LoadBalancer.DNSName

@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >
+    A demo EC2 image builder solution attaching to an existing VPC. Adding small differences to a base images to create a new image
+
+Parameters:
+
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-ec2-image-builder
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: admin
+  ImageBuilderLogBucket:
+      Type: String
+      Default: 238160719262-builds
+      Description: Name of S3 bucket for build log artefacts 
+  ImageBuilderLogBucketKMSKeyArn:
+      Type: String
+      Default: arn:aws:kms:ap-southeast-2:238160719262:key/56fad4f1-f5ca-4f39-9d09-2516f0140689
+      Description: ARN of the KMS Key of the Log Bucket 
+  ImageName:
+      Type: String
+      Default: win2022-core
+      Description: Name of AMI image 
+  ImageVersion:
+      Type: String
+      Default: 1.0.0
+      Description: Version of AMI image (format ^[0-9]+\.[0-9]+\.[0-9]+$ )
+  ParentImage:
+      Type: String
+      Default: ami-0cc78e72c287beef1
+      Description: amiID of the image to use as a base for this image build
+  BuildInstanceType:
+      Description: Instance type for the EC2 Cluster
+      Type: String
+      Default: t3.large
+  BuildInstanceKey:
+      Type: AWS::EC2::KeyPair::KeyName
+      Default: AWS-robzal
+  BuildInstanceSubnet:
+    Type: String
+    Default: subnet-0d7fe1f4399452ff8
+  BuildInstanceSecGroups:
+    Type: CommaDelimitedList
+    Default: sg-0dfcbfcecce3f0460  
+  PrimaryRegion:
+      Description: Primary Region ID to detect where to deploy account wide resources.
+      Type: String
+      Default: "ap-southeast-2"
+
+Conditions:
+    IsPrimaryRegion: !Equals 
+        - !Ref PrimaryRegion
+        - !Ref AWS::Region
+
+Resources:
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Condition: IsPrimaryRegion
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - !Sub 'ec2.${AWS::URLSuffix}'
+        Version: '2012-10-17'
+      Path: /
+      Policies:
+        -
+          PolicyName: ImageBuilderLogBucketPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - s3:PutObject
+                Effect: Allow
+                Resource:
+                  - !Sub arn:aws:s3:::${ImageBuilderLogBucket}/*
+              - Action:
+                  - kms:Encrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Effect: Allow
+                Resource:
+                  - !Ref ImageBuilderLogBucketKMSKeyArn
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: IsPrimaryRegion
+    Properties:
+      Path: /
+      Roles:
+        - Ref: InstanceRole
+
+  ImageBuilderInfrastructureConfiguration:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Condition: IsPrimaryRegion
+    Properties:
+      Name: !Sub ${ImageName}-Infrastructure-Configuration
+      Description: !Sub ${ImageName}-Infrastructure-Configuration
+      InstanceProfileName: !Ref InstanceProfile
+      # If you would like to keep the instance running after a failed build, set TerminateInstanceOnFailure to false.
+      TerminateInstanceOnFailure: true
+      InstanceTypes:
+        - !Ref BuildInstanceType
+      KeyPair: !Ref BuildInstanceKey
+      SecurityGroupIds: !Ref BuildInstanceSecGroups
+      SubnetId: !Ref BuildInstanceSubnet
+      Logging:
+        S3Logs:
+          S3BucketName: !Ref ImageBuilderLogBucket
+          S3KeyPrefix: !Sub 'imagebuilder'
+      Tags:
+        ImageName: !Sub ${ImageName}
+
+  # The CloudWatch LogGroup for the image build logs is provided to ensure the LogGroup is cleaned up if the stack is deleted.
+  ImageBuilderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: IsPrimaryRegion
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/imagebuilder/${ImageName}
+      RetentionInDays: 3
+
+  # Recipe which references the latest (x.x.x) version of the Amazon Linux 2 AMI).
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-imagebuilder-imagerecipe.html
+  ImageBuilderRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Condition: IsPrimaryRegion
+    Properties:
+      Name: !Ref ImageName
+      Version: !Ref ImageVersion
+      ParentImage: !Ref ParentImage
+      Components:
+        - ComponentArn:
+            Fn::Sub: arn:aws:imagebuilder:${AWS::Region}:aws:component/update-windows/x.x.x
+      AdditionalInstanceConfiguration:
+        UserDataOverride:
+          Fn::Base64:
+            Fn::Sub: |
+              <powershell>
+              $ErrorActionPreference = 'Stop'
+              $source = 'https://amazon-ssm-${AWS::Region}.s3.${AWS::Region}.${AWS::URLSuffix}/latest/windows_amd64/AmazonSSMAgentSetup.exe'
+              $installer = Join-Path -Path $env:TEMP -ChildPath 'AmazonSSMAgentSetup.exe'
+              $webClient = New-Object -TypeName System.Net.WebClient
+              $webClient.DownloadFile($source, $installer)
+              $webClient.Dispose()
+              Start-Process -FilePath $installer -ArgumentList @('/s') -Wait
+              Remove-Item -Path $installer -Force
+              </powershell>
+
+  ImageBuilderImage:
+    Type: AWS::ImageBuilder::Image
+    Condition: IsPrimaryRegion
+    Properties:
+      ImageRecipeArn: !Ref ImageBuilderRecipe
+      InfrastructureConfigurationArn: !Ref ImageBuilderInfrastructureConfiguration
+
+  ImageBuilderImageParameter:
+    Type: AWS::SSM::Parameter
+    Condition: IsPrimaryRegion
+    Properties:
+      Description: Image Id for Demo Custom Linux AMI
+      Name: !Sub /ami/${ImageName}
+      Type: String
+      Value:
+        Fn::GetAtt: [ImageBuilderImage, ImageId]

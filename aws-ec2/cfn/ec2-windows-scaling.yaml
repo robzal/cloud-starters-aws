@@ -1,0 +1,326 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+    Deploy Scaling EC2 Windows instances accessible via a public load balancer
+
+Parameters:
+
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-ecs
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: tools
+
+  EC2InstanceCount: 
+      Description: How many instances will launch for the EC2 Cluster?
+      Type: String
+      Default: 0
+  EC2InstanceType:
+      Description: Instance type for the EC2 Cluster
+      Type: String
+      Default: t3.large
+  EC2InstanceAMI:
+      Description: Instance AMI for the EC2 Cluster (Non Fargate)
+      Type: String
+      # aws ssm get-parameters-by-path --path /aws/service/ami-windows-latest/ --region $region
+      Default: ami-0e620a1299bdb9071
+  EC2InstanceKey:
+      Type: AWS::EC2::KeyPair::KeyName
+      Default: AWS-robzal
+  EC2TaskPort:
+      Description: The load bal port number of the EC2 Windows service (must be different to fargate service)
+      Type: Number
+      Default: 80
+
+  VPCID:
+      Description: VPCID to deploy this infrastructure into
+      Type: String
+      Default: vpc-02dee7d733d73e02c
+  VPCCIDRBlock:
+      Description: CIDR Block for VPC, for use in security group rules
+      Type: String
+      Default: 10.0.0.0/16
+  InstanceSubnet1:
+      Description: Subnet ID 1 for Cluster
+      Type: String
+      Default: subnet-058d24196599afd43
+  InstanceSubnet2:
+      Description: Subnet ID 2 for Cluster
+      Type: String
+      Default: subnet-0e4f320620d8a8706
+  LoadBalSubnet1:
+      Description: Subnet ID 1 for Cluster
+      Type: String
+      Default: subnet-0650a76442c640904
+  LoadBalSubnet2:
+      Description: Subnet ID 2 for Cluster
+      Type: String
+      Default: subnet-0009a4a8e07242139
+
+  LoadBalCertificate:
+      Description: LoadBal SSL Certification ARN
+      Type: String
+      Default: "arn:aws:acm:ap-southeast-2:238160719262:certificate/6e931283-d897-4bc3-9947-58d94eeb3442"
+  DNSAliasZone: 
+      Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
+      Type: String
+      Default: aws.worxdesign.com.
+  DNSAliasHost:
+      Description: (Optional) Alias Name for the ELB being created (minus the zone / domain)
+      Type: String
+      Default: ""
+  PrimaryRegion:
+      Description: Primary Region ID to detect where to deploy account wide resources.
+      Type: String
+      Default: "ap-southeast-2"
+
+Conditions:
+    DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
+    IsPrimaryRegion: !Equals 
+        - !Ref PrimaryRegion
+        - !Ref AWS::Region
+
+Resources:
+
+  # Instance/Auto Scaling Group Resources
+  InstanceSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+          GroupName: !Sub '${AppCode}-${Environment}-Windows-ASG-Instance-SG'
+          GroupDescription: Enable HTTP and HTTPS requests through to ALB
+          VpcId: !Ref VPCID
+          SecurityGroupIngress:
+              - IpProtocol: 'tcp'
+                FromPort: !Ref EC2TaskPort
+                ToPort: !Ref EC2TaskPort
+                CidrIp: !Ref VPCCIDRBlock
+              - IpProtocol: 'tcp'
+                FromPort: 3389
+                ToPort: 3389
+                CidrIp: !Ref VPCCIDRBlock
+          SecurityGroupEgress:
+              - IpProtocol: '-1'
+                CidrIp: 0.0.0.0/0
+  InstanceRole:
+    Type: "AWS::IAM::Role"
+    Condition: IsPrimaryRegion
+    Properties:
+      Policies:
+        -
+          PolicyName: "CompleteLifecycleActionAllowPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action: "autoscaling:CompleteLifecycleAction"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${AppCode}-${Environment}-Windows-ASG-Demo"                         
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+              - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore          
+  InstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Condition: IsPrimaryRegion
+    Properties: 
+      Path: "/"
+      Roles: 
+        - 
+          Ref: "InstanceRole"
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AppCode}-${Environment}-Windows-ASG-Demo
+      VersionDescription: 'Initial Version'
+      LaunchTemplateData:
+        ImageId: !Ref EC2InstanceAMI
+        InstanceType: !Ref EC2InstanceType
+        KeyName: !Ref EC2InstanceKey
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        IamInstanceProfile:
+          Arn: !GetAtt
+            - InstanceProfile
+            - Arn
+        MetadataOptions:
+          HttpTokens: optional
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${AppCode}-${Environment}-Windows-ASG-Instance       
+        UserData: 
+          'Fn::Base64': !Sub 
+              - |-
+                  <powershell>
+                    if ((Get-WindowsFeature Web-Server).InstallState -eq "Installed") {
+                      Write-Host "IIS is installed, stopping and starting IIS"
+                      try
+                      {
+                        Start-Process "iisreset.exe" -NoNewWindow -Wait
+                        Write-Host "Completing Lifecycle Action with CONTINUE"
+                        $INSTANCE = (New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
+                        Complete-ASLifecycleAction -InstanceId $INSTANCE -LifecycleHookName "${lifecycleHookName}" -AutoScalingGroupName "${autoScalingGroupName}" -LifecycleActionResult CONTINUE
+                      }
+                      catch
+                      {
+                        Write-Output "An error occured, Completing Lifecycle Action with ABANDON."
+                        $INSTANCE = (New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
+                        Complete-ASLifecycleAction -InstanceId $INSTANCE -LifecycleHookName "${lifecycleHookName}" -AutoScalingGroupName "${autoScalingGroupName}" -LifecycleActionResult ABANDON
+                      }
+                    } 
+                    else {
+                      Write-Host "IIS is not installed, installing, stopping and starting IIS."
+                      try
+                      {
+                        Install-WindowsFeature -name Web-Server -IncludeManagementTools
+                        Start-Process "iisreset.exe" -NoNewWindow -Wait
+                        Write-Host "Sleeping for 120 Seconds to Simulate IIS Configuration."
+                        Start-Sleep -s 120
+                        Write-Host "Completing Lifecycle Action with CONTINUE"
+                        $INSTANCE = (New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
+                        Complete-ASLifecycleAction -InstanceId $INSTANCE -LifecycleHookName "${lifecycleHookName}" -AutoScalingGroupName "${autoScalingGroupName}" -LifecycleActionResult CONTINUE
+                      }
+                      catch
+                      {
+                        Write-Output "An error occured, Completing Lifecycle Action with ABANDON."
+                        $INSTANCE = (New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
+                        Complete-ASLifecycleAction -InstanceId $INSTANCE -LifecycleHookName "${lifecycleHookName}" -AutoScalingGroupName "${autoScalingGroupName}" -LifecycleActionResult ABANDON
+                      }
+                    }
+                  </powershell>
+                  <persist>true</persist>
+              - { 
+                  autoScalingGroupName: !Sub "${AppCode}-${Environment}-Windows-ASG-Demo",
+                  lifecycleHookName: !Sub "${AppCode}-${Environment}-Windows-ASG-Hook"
+                }
+  AutoScalingGroup:    
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties: 
+      AutoScalingGroupName: !Sub ${AppCode}-${Environment}-Windows-ASG-Demo
+      LaunchTemplate: 
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      DesiredCapacity: !Ref EC2InstanceCount
+      MaxSize: !Ref EC2InstanceCount
+      MinSize: !Ref EC2InstanceCount
+      TargetGroupARNs: 
+        - !GetAtt TargetGroup.TargetGroupArn
+      VPCZoneIdentifier: 
+        - !Ref InstanceSubnet1
+        - !Ref InstanceSubnet2
+
+  LifecycleHook:
+    Type: AWS::AutoScaling::LifecycleHook
+    Properties:
+      LifecycleHookName: !Sub ${AppCode}-${Environment}-Windows-ASG-Hook
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      DefaultResult: ABANDON
+      HeartbeatTimeout: 900
+      LifecycleTransition: "autoscaling:EC2_INSTANCE_LAUNCHING"
+
+  LoadBalancerSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+          GroupName: !Sub '${AppCode}-${Environment}-Windows-ASG-LoadBal-SG'
+          GroupDescription: Enable HTTP and HTTPS requests through to ALB
+          VpcId: !Ref VPCID
+          SecurityGroupIngress:
+              - IpProtocol: 'tcp'
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+              - IpProtocol: 'tcp'
+                FromPort: 443
+                ToPort: 443
+                CidrIp: 0.0.0.0/0
+          SecurityGroupEgress:
+              - IpProtocol: '-1'
+                CidrIp: 0.0.0.0/0
+  LoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+          Name: !Sub ${AppCode}-${Environment}-Windows-ASG-ALB
+          Scheme: internet-facing
+          Type: application
+          Subnets: 
+              - !Ref LoadBalSubnet1
+              - !Ref LoadBalSubnet2
+          SecurityGroups: 
+              - !Ref LoadBalancerSecurityGroup
+          Tags: 
+              - Key: Name
+                Value: !Sub ${AppCode}-${Environment}-Windows-ASG-LoadBal
+  LoadBalancerHttpRedirectListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+          LoadBalancerArn: !Ref LoadBalancer
+          Port: 80
+          Protocol: HTTP
+          DefaultActions:
+              - RedirectConfig:
+                  Host: "#{host}"
+                  Path: "/#{path}"
+                  Port: 443
+                  Protocol: "HTTPS"
+                  Query: "#{query}"
+                  StatusCode: HTTP_301
+                Type: redirect
+  LoadBalancerHttpsListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+          LoadBalancerArn: !Ref LoadBalancer
+          Port: 443
+          Protocol: HTTPS
+          Certificates:  
+              - !Ref LoadBalCertificate
+          DefaultActions: 
+              - Type: forward
+                TargetGroupArn: !Ref TargetGroup
+  ListenerRule:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+          ListenerArn: !Ref LoadBalancerHttpsListener
+          Priority: 2
+          Conditions:
+              - Field: path-pattern
+                Values: 
+                  - /
+          Actions:
+              - TargetGroupArn: !Ref TargetGroup
+                Type: forward            
+  TargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+          Name: !Sub ${AppCode}-${Environment}-Windows-ASG-TG
+          VpcId: !Ref VPCID
+          Port: !Ref EC2TaskPort
+          Protocol:  HTTP
+          TargetType: instance
+          HealthCheckPath: "/"
+
+  # Route53:
+  #         Type: AWS::Route53::RecordSetGroup
+  #         Condition: DoDNS
+  #         Properties:
+  #             Comment:  Alias for the API Service ELB.
+  #             HostedZoneName: !Ref DNSAliasZone
+  #             RecordSets:
+  #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+  #               Type: A
+  #               AliasTarget:
+  #                 HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+  #                 DNSName: !GetAtt LoadBalancer.DNSName

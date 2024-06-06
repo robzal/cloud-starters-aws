@@ -1,0 +1,12 @@
+Environment=${ENVIRONMENT}
+AppCode=${APP_CODE}
+ImageBuilderLogBucket=${BUILD_LOG_BUCKET}
+ImageBuilderLogBucketKMSKeyArn=${BUILD_LOG_BUCKET_KMS_KEY_ARN}
+ImageName=${LINUX_IMAGE_NAME}
+ImageVersion=${LINUX_IMAGE_VERSION}
+ParentImage=${LINUX_PARENT_AMI}
+BuildInstanceType=${LINUX_INSTANCE_TYPE}
+BuildInstanceKey=${LINUX_INSTANCE_KEY}
+BuildInstanceSubnet=${VPC_SUBNET}
+BuildInstanceSecGroups=${VPC_SECGROUPS}
+PrimaryRegion=${PRIMARY_REGION}
