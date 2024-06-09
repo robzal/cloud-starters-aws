@@ -118,6 +118,21 @@ Resources:
         -
           Key: "Name"
           Value:  !Sub '${VPCName}-Public-B'
+  PublicSubnetAZ3:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      CidrBlock: !Select [ 2, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        -
+          Key: "kubernetes.io/role/elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Public-C'
   InternetGateway:
     Type: "AWS::EC2::InternetGateway"
     Properties:
@@ -162,6 +177,13 @@ Resources:
     Properties:
       SubnetId:
         Ref: "PublicSubnetAZ2"
+      RouteTableId:
+        Ref: "PublicRouteTable"
+  PublicSubnetRouteTableAssociation2:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PublicSubnetAZ3"
       RouteTableId:
         Ref: "PublicRouteTable"
   AdminPrefixList:
@@ -219,12 +241,31 @@ Resources:
         -
           Key: "Name"
           Value:  !Sub '${VPCName}-Private-B'
+  PrivateSubnetAZ3:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      CidrBlock: !Select [ 6, !Cidr [ !Sub '${VPCCIDRBlock}', 8, 8 ]]
+      Tags:
+        -
+          Key: "kubernetes.io/role/internal-elb"
+          Value:  "1"
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private-C'
   ElasticIPAZ1:
     Type: "AWS::EC2::EIP"
     Condition: ShouldCreateNATGW
     Properties:
       Domain: "vpc"
   ElasticIPAZ2:
+    Type: "AWS::EC2::EIP"
+    Condition: ShouldCreateNATGW
+    Properties:
+      Domain: "vpc"
+  ElasticIPAZ3:
     Type: "AWS::EC2::EIP"
     Condition: ShouldCreateNATGW
     Properties:
@@ -249,6 +290,16 @@ Resources:
           - "AllocationId"
       SubnetId:
         Ref: "PublicSubnetAZ2"
+  NATGatewayAZ3:
+    Type: "AWS::EC2::NatGateway"
+    Condition: ShouldCreateNATGW
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - "ElasticIPAZ3"
+          - "AllocationId"
+      SubnetId:
+        Ref: "PublicSubnetAZ3"
   PrivateRouteTableAZ1:
     Type: "AWS::EC2::RouteTable"
     Properties:
@@ -267,6 +318,15 @@ Resources:
         -
           Key: "Name"
           Value:  !Sub '${VPCName}-Private2'
+  PrivateRouteTableAZ3:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      Tags:
+        -
+          Key: "Name"
+          Value:  !Sub '${VPCName}-Private3'
   PrivateRouteToInternetAZ1:
     Type: "AWS::EC2::Route"
     Condition: ShouldCreateNATGW
@@ -285,6 +345,15 @@ Resources:
       DestinationCidrBlock: "0.0.0.0/0"
       NatGatewayId:
         Ref: "NATGatewayAZ2"
+  PrivateRouteToInternetAZ3:
+    Type: "AWS::EC2::Route"
+    Condition: ShouldCreateNATGW
+    Properties:
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ3"
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: "NATGatewayAZ3"
   PrivateSubnetRouteTableAssociationAZ1:
     Type: "AWS::EC2::SubnetRouteTableAssociation"
     Properties:
@@ -299,6 +368,13 @@ Resources:
         Ref: "PrivateSubnetAZ2"
       RouteTableId:
         Ref: "PrivateRouteTableAZ2"
+  PrivateSubnetRouteTableAssociationAZ3:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId:
+        Ref: "PrivateSubnetAZ3"
+      RouteTableId:
+        Ref: "PrivateRouteTableAZ3"
 
   S3Gateway:
     Type: 'AWS::EC2::VPCEndpoint'
@@ -346,6 +422,7 @@ Resources:
   #     SubnetIds:
   #       - !Ref PrivateSubnetAZ1
   #       - !Ref PrivateSubnetAZ2
+  #       - !Ref PrivateSubnetAZ3
   #     SecurityGroupIds:
   #       - !Ref AdminSecurityGroup
 

@@ -385,7 +385,7 @@ Resources:
               });
           }
       Handler: index.handler
-      Runtime: nodejs18.x
+      Runtime: nodejs20.x
       Timeout: '60'
       Role: !GetAtt [ConfigCustomLambdaExecutionRole, Arn]
   ConfigCustomLambdaExecutionRole:
