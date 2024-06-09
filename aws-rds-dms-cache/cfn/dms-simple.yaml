@@ -1,0 +1,335 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Simple AWS DMS example for database migration from one location to another (both myql dbs in this example). Passwords would ordinarily be stored in secrets manager. DMS is also very configurable and your use case will likely need more DMS task settings configured.
+
+Parameters:
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-databases
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: dev
+
+  VPCID:
+      Description: VPCID to deploy this infrastructure into
+      Type: String
+      Default: vpc-02dee7d733d73e02c
+  VPCCIDRBlock:
+      Description: CIDR Block for VPC, for use in security group rules
+      Type: String
+      Default: 10.0.0.0/16
+  AdminIPAddressCIDR:
+      Description: IP Address (CIDR format), open to admin for use in security group rules
+      Type: String
+      Default: 1.2.3.4/32
+  InstanceSubnet1:
+      Description: Subnet ID 1 for Instance
+      Type: String
+      Default: subnet-0650a76442c640904
+  InstanceSubnet2:
+      Description: Subnet ID 2 for Instance
+      Type: String
+      Default: subnet-0009a4a8e07242139
+
+  DmsEngineVersion:
+    Default: 3.5.3
+    Type: String
+    Description: AWS DMS replication engine version.
+    AllowedValues:
+      - 3.5.3
+      - 3.5.2
+      - 3.5.1
+      - 3.4.7
+      - 3.4.6
+  DmsInstanceType:
+    Default: dms.t3.medium
+    Type: String
+    Description: AWS DMS replication instance size.
+    AllowedValues:
+      - dms.t3.micro
+      - dms.t3.small
+      - dms.t3.medium
+      - dms.t3.large
+      - dms.c5.large
+      - dms.c5.xlarge
+      - dms.c5.2xlarge
+      - dms.c5.4xlarge
+      - dms.r5.large
+      - dms.r5.xlarge
+      - dms.r5.2xlarge
+      - dms.r5.4xlarge
+  DmsInstanceIdentifier:
+    Type: String
+    Default: "dms-instance"
+
+  SourceEngine:
+    Type: String
+    Description: Database engine running on the source
+    Default: mysql
+    AllowedValues:
+      - mysql
+      - oracle
+      - postgres
+      - mariadb
+      - aurora
+      - aurora-postgresql
+      - opensearch
+      - redshift
+      - redshift-serverless
+      - s3
+      - azuredb
+      - dynamodb
+      - kinesis
+      - kafka
+      - elasticsearch
+      - docdb
+      - sqlserver
+      - neptune
+  SourceEnginePort:
+    Type: String
+    Description: Source server Port
+    Default: 3306
+  SourceServerName:
+    Type: String
+    Description: Source Server Hostname
+    Default: testserver.hostdomain
+  SourceDBName:
+    Type: String
+    Description: Name of the database in source server
+    Default: testsourcedb
+  SourceUsername:
+    Description: Source DB username
+    Type: String
+    Default: username
+  SourcePassword:
+    Description: Source password. Make it strong, or reconfigure to use Secrets Manager
+    Type: String
+    Default: password
+    NoEcho: true
+
+  TargetEngine:
+    Type: String
+    Description: Database engine running on the target
+    Default: mysql
+    AllowedValues:
+      - mysql
+      - oracle
+      - postgres
+      - mariadb
+      - aurora
+      - aurora-postgresql
+      - opensearch
+      - redshift
+      - redshift-serverless
+      - s3
+      - azuredb
+      - dynamodb
+      - kinesis
+      - kafka
+      - elasticsearch
+      - docdb
+      - sqlserver
+      - neptune
+  TargetEnginePort:
+    Type: String
+    Description: Target server Port
+    Default: 3306
+  TargetServerName:
+    Type: String
+    Description: Target Server Hostname
+    Default: testserver.hostdomain
+  TargetDBName:
+    Type: String
+    Description: Name of the database in target server
+    Default: tettargetdb
+  TargetUsername:
+    Description: Source DB username
+    Type: String
+    Default: username
+  TargetPassword:
+    Description: Source password. Make it strong, or reconfigure to use Secrets Manager
+    Type: String
+    Default: password
+    NoEcho: true
+
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: "ap-southeast-2"
+
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+
+Resources:
+  DMSVPCRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'dms-vpc-role'
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['dms.amazonaws.com']
+            Action: ['sts:AssumeRole']
+  DMSCloudwatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'dms-cloudwatch-logs-role'
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDMSCloudWatchLogsRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['dms.amazonaws.com']
+            Action: ['sts:AssumeRole']
+
+  DMSSubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    DependsOn: DMSVPCRole
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-subnetgroup
+      ReplicationSubnetGroupDescription: DMS subnet group
+      SubnetIds:
+        - !Ref InstanceSubnet1
+        - !Ref InstanceSubnet2
+      Tags:
+      - Key: Name
+        Value: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-subnetgroup
+  DMSInstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    DependsOn: DMSVPCRole
+    Properties:
+        GroupName: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-SG'
+        GroupDescription: Enable DMS replication and service traffic
+        VpcId: !Ref VPCID
+        # only need egress unless deepdiving DMS instance logs or daemons. Thats very advanced stuff.
+        SecurityGroupEgress:
+            - IpProtocol: '-1'
+              CidrIp: 0.0.0.0/0
+        Tags:
+        - Key: Name
+          Value: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-SG
+
+  DMSInstanceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}'
+      RetentionInDays: 14
+  DMSInstance:
+    Type: AWS::DMS::ReplicationInstance
+    DependsOn: [DMSInstanceLogGroup, DMSSubnetGroup, DMSInstanceSecurityGroup]
+    Properties:
+      ReplicationInstanceIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}'
+      EngineVersion: !Ref DmsEngineVersion
+      MultiAZ: false
+      PubliclyAccessible: false
+      ReplicationInstanceClass: !Ref DmsInstanceType
+      ReplicationSubnetGroupIdentifier:  !Ref DMSSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DMSInstanceSecurityGroup
+
+  SourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-source-endpoint'
+      EndpointType: source
+      DatabaseName: !Ref SourceDBName
+      EngineName: !Ref SourceEngine
+      ServerName: !Ref SourceServerName
+      Username: !Ref SourceUsername
+      Password: !Ref SourcePassword
+      Port: !Ref SourceEnginePort
+
+  TargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-target-endpoint'
+      EndpointType: target
+      DatabaseName: !Ref TargetDBName
+      EngineName: !Ref TargetEngine
+      ServerName: !Ref TargetServerName
+      Username: !Ref TargetUsername
+      Password: !Ref TargetPassword
+      Port: !Ref TargetEnginePort
+
+  ReplicationTask:
+    Type: 'AWS::DMS::ReplicationTask'
+    Properties:
+      ReplicationTaskIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-migration-task'
+      MigrationType: full-load
+      ReplicationInstanceArn: !Ref DMSInstance
+      SourceEndpointArn: !Ref SourceEndpoint
+      TargetEndpointArn: !Ref TargetEndpoint
+      TableMappings: |
+        {
+          "rules": [
+            {
+              "rule-type": "selection",
+              "rule-id": "1",
+              "rule-name": "1",
+              "object-locator": {
+                "schema-name": "dbo",
+                "table-name": "%"
+            },
+            "rule-action": "include",
+            "filters": []
+            }
+          ]
+        }
+      ReplicationTaskSettings: |
+        {
+          "TargetMetadata": {
+            "TargetSchema": "",
+            "SupportLobs": true,
+            "FullLobMode": false,
+            "LobChunkSize": 0,
+            "LimitedSizeLobMode": true,
+            "LobMaxSize": 20480,
+            "InlineLobMaxSize": 0,
+            "LoadMaxFileSize": 0,
+            "ParallelLoadThreads": 0,
+            "ParallelLoadBufferSize": 0,
+            "BatchApplyEnabled": false,
+            "TaskRecoveryTableEnabled": false,
+            "ParallelLoadQueuesPerThread": 0,
+            "ParallelApplyThreads": 0,
+            "ParallelApplyBufferSize": 0,
+            "ParallelApplyQueuesPerThread": 0
+          },
+          "FullLoadSettings": {
+            "TargetTablePrepMode": "TRUNCATE_BEFORE_LOAD",
+            "CreatePkAfterFullLoad": false,
+            "StopTaskCachedChangesNotApplied": true,
+            "MaxFullLoadSubTasks": 8,
+            "TransactionConsistencyTimeout": 600,
+            "CommitRate": 10000
+          },
+          "Logging": {
+            "EnableLogging": true
+          },
+          "ValidationSettings": {
+            "EnableValidation": true,
+            "ValidationMode": "ROW_LEVEL",
+            "ThreadCount": 5,
+            "PartitionSize": 10000,
+            "FailureMaxCount": 10000,
+            "RecordFailureDelayInMinutes": 5,
+            "RecordSuspendDelayInMinutes": 30,
+            "MaxKeyColumnSize": 8096,
+            "TableFailureMaxCount": 1000,
+            "ValidationOnly": false,
+            "HandleCollationDiff": false,
+            "RecordFailureDelayLimitInMinutes": 0,
+            "SkipLobColumns": false,
+            "ValidationPartialLobSize": 0,
+            "ValidationQueryCdcDelaySeconds": 0
+            }
+        }

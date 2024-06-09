@@ -1,0 +1,275 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  This template provisions a simple demo Aurora Mysql Cluster. There are many more parameters available and production deployments should be designed to include some of these
+
+Parameters:
+  AppCode:
+      Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: demo-dbs
+  Environment:
+      Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
+      Type: String
+      Default: dev
+
+  DBEngine:
+    Description: Database Engine
+    Type: String
+    Default: mysql
+  DBEngineVersion:
+    Description: Select Database Engine Version
+    Type: String
+    Default: 8.0.35
+  DBInstanceClass:
+    Description: Database instance to use. Default is set to graviton
+    Type: String
+    Default: db.t3.medium
+  DBClusterIdentifier:
+    Description: DB Cluster Name
+    Type: String
+    Default: auroroa-mysql-cluster
+  DBInstanceIdentifier:
+    Description: DB Instance Name
+    Type: String
+    Default: mysql-instance
+  DBName:
+    Description: Select Database Name
+    Type: String
+    Default: mysqldb
+  DBPort:
+    Description: TCP/IP Port for the Database Instance
+    Type: Number
+    Default: 3306
+  DBMasterUsername:
+    Description: Master username
+    Type: String
+    Default: master
+  DBMasterPassword:
+    Description: Master password. Make it strong, or reconfigure to use Secrets Manager
+    Type: String
+    Default: password
+  MultiAZ:
+    Description: Whether to use a secondary read only failover instance. This incurs extras costs but offers better resiliency.
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+  StorageType:
+    Description: Type of Disk for Data Storage. If you specify io1, io2, or gp3, you must also include a value for the Iops parameter.
+    Type: String
+    AllowedValues:
+      - "gp2"
+      - "gp3"
+      - "io1"
+      - "io2"
+    Default: gp2
+  Iops:
+    Description: Initially Provisioned Disk Storage in gB
+    Type: String
+    Default: 200
+  AllocatedStorage:
+    Description: Initially Provisioned Disk Storage in gB
+    Type: String
+    Default: 20
+  StorageEncrypted:
+    Description: Whether disk storage is encrypted. If true, then AWS KMS key will be used unless a Customer KMS key arn is provided in that paramater
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+  KmsKeyId:
+    Type: String
+    Description: "ARN of the Customer KMS Key for data storage encryption if needed"
+    Default: ""
+  EnableDeletionProtection:
+    Type: String
+    Description: "Specify whether to enable RDS instance deletion protection"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+  DeleteAutomatedBackups:
+    Type: String
+    Description: "Specify whether to delete automated backups if the database is deleted"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "true"
+  BackupRetentionPeriod:
+    Type: String
+    Description: "Specify how many days worth of database backups are needed"
+    Default: "7"
+  PreferredMaintenanceWindow:
+    Type: String
+    Description: "Specify database maintenance window time (UTC) of at least 30 minutes."
+    Default: "sun:20:00-Sun:20:30"
+
+  VPCID:
+      Description: VPCID to deploy this infrastructure into
+      Type: String
+      Default: vpc-02dee7d733d73e02c
+  VPCCIDRBlock:
+      Description: CIDR Block for VPC, for use in security group rules
+      Type: String
+      Default: 10.0.0.0/16
+  AdminIPAddressCIDR:
+      Description: IP Address (CIDR format), open to admin for use in security group rules
+      Type: String
+      Default: 1.2.3.4/32
+  InstanceSubnet1:
+      Description: Subnet ID 1 for Instance
+      Type: String
+      Default: subnet-0650a76442c640904
+  InstanceSubnet2:
+      Description: Subnet ID 2 for Instance
+      Type: String
+      Default: subnet-0009a4a8e07242139
+  InstanceSubnet3:
+      Description: Subnet ID 2 for Instance
+      Type: String
+      Default: subnet-0009a4a8e07242139
+  PubliclyAccessible:
+    Description: Specifies if a public IPv4 address is assigned to the RDS Instance. This also requires Public VPC Subnet IDs to be provided
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+
+  DNSAliasZone: 
+      Description: (Optional) R53 Domain Name of the DNS alias for the ELB being created
+      Type: String
+      Default: aws.worxdesign.com.
+  DNSAliasHost:
+      Description: (Optional) Alias Name for the ELB being created (minus the zone / domain)
+      Type: String
+      Default: ""
+  PrimaryRegion:
+      Description: Primary Region ID to detect where to deploy account wide resources.
+      Type: String
+      Default: "ap-southeast-2"
+
+Conditions:
+    DoEncryption: !Not [!Equals [!Ref StorageEncrypted, "false"]]
+    DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
+    IsPrimaryRegion: !Equals 
+        - !Ref PrimaryRegion
+        - !Ref AWS::Region
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${AppCode}-${Environment}-rds-aurora-mysql-subnetgroup
+      DBSubnetGroupDescription: Database subnet group
+      SubnetIds:
+        - !Ref InstanceSubnet1
+        - !Ref InstanceSubnet2
+        - !Ref InstanceSubnet3
+      Tags:
+      - Key: Name
+        Value: !Sub ${AppCode}-${Environment}-mysql-instance-subnetgroup
+  DBInstanceSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+          GroupName: !Sub '${AppCode}-${Environment}-rds-aurora-mysql-SG'
+          GroupDescription: Enable DB requests through to RDS
+          VpcId: !Ref VPCID
+          SecurityGroupIngress:
+              - IpProtocol: 'tcp'
+                FromPort: !Ref DBPort
+                ToPort: !Ref DBPort
+                CidrIp: !Ref VPCCIDRBlock
+              - IpProtocol: 'tcp'
+                FromPort: !Ref DBPort
+                ToPort: !Ref DBPort
+                # CidrIp: 0.0.0.0/0
+                CidrIp: !Ref AdminIPAddressCIDR
+          SecurityGroupEgress:
+              - IpProtocol: '-1'
+                CidrIp: 0.0.0.0/0
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterIdentifier
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBInstanceSecurityGroup
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DatabaseName: !Ref DBName
+      Port: !Ref DBPort
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      StorageEncrypted: !Ref StorageEncrypted
+      KmsKeyId: !If [DoEncryption, !Ref KmsKeyId, !Ref 'AWS::NoValue']
+      DeletionProtection: !Ref EnableDeletionProtection
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      Tags:
+      - Key: Name
+        Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}"
+  DBInstance1:
+    Type: AWS::RDS::DBInstance
+    DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceIdentifier: !Sub ${DBInstanceIdentifier}-1
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      PubliclyAccessible: !Ref PubliclyAccessible
+      StorageEncrypted: !Ref StorageEncrypted
+      KmsKeyId: !If [DoEncryption, !Ref KmsKeyId, !Ref 'AWS::NoValue']
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      Tags:
+      - Key: Name
+        Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-${DBInstanceIdentifier}-1"
+  DBInstance2:
+    Type: AWS::RDS::DBInstance
+    DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceIdentifier: !Sub ${DBInstanceIdentifier}-2
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      PubliclyAccessible: !Ref PubliclyAccessible
+      StorageEncrypted: !Ref StorageEncrypted
+      KmsKeyId: !If [DoEncryption, !Ref KmsKeyId, !Ref 'AWS::NoValue']
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      Tags:
+      - Key: Name
+        Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-${DBInstanceIdentifier}-2"
+
+  # Route53:
+  #         Type: AWS::Route53::RecordSetGroup
+  #         Condition: DoDNS
+  #         Properties:
+  #             Comment:  Alias for the API Service ELB.
+  #             HostedZoneName: !Ref DNSAliasZone
+  #             RecordSets:
+  #             - Name: !Join ["", [!Ref DNSAliasHost, ".", !Ref DNSAliasZone]]
+  #               Type: A
+  #               AliasTarget:
+  #                 HostedZoneId: !GetAtt DBCluster.Endpoint.HostedZoneID
+  #                 DNSName: !GetAtt DBCluster.Endpoint.Address
+
+Outputs:
+  DBClusterEndpoint:
+    Description: DNS Endpoint for the DB Cluster Writer Endpoint
+    Value: !GetAtt DBCluster.Endpoint.Address
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-Endpoint"
+
+  DBClusterReadEndpoint:
+    Description: DNS Read Endpoint for the DB Cluster Writer Endpoint
+    Value: !GetAtt DBCluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-ReadEndpoint"
