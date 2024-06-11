@@ -219,7 +219,7 @@ Resources:
                 S3Key: !Ref LambdaDemoFunctionBucketKey
             Handler: lambda.handler
             Role: !GetAtt LambdaFunctionRole.Arn
-            Runtime: python3.10
+            Runtime: python3.11
             MemorySize: 128
             Timeout: 10
             Environment:

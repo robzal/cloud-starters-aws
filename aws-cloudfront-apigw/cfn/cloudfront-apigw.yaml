@@ -248,7 +248,7 @@ Resources:
             return response
       Handler: index.handler
       Role: !GetAtt APIGWDemoFunctionRole.Arn
-      Runtime: python3.10
+      Runtime: python3.11
       MemorySize: 128
       Timeout: 10
       FunctionName: !Sub '${AppCode}-${Environment}-APIGW-Demo-Lambda'

@@ -138,7 +138,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: !Sub ${AppCode}-${Environment}-Demo-API-Function
-      Runtime: "python3.10"
+      Runtime: "python3.11"
       Handler: "lambda.handler"
       Role: !GetAtt DemoApiIAMRole.Arn
       Code:
@@ -234,7 +234,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: ApiAuthorizerLambdaFunction
-      Runtime: "python3.10"
+      Runtime: "python3.11"
       Handler: "lambda.handler"
       Role: !GetAtt ApiAuthorizerLambdaIAMRole.Arn
       Code:

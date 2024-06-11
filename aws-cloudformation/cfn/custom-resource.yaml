@@ -77,7 +77,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.10
+      Runtime: python3.11
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-FileDownloader-Function'
@@ -113,7 +113,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.10
+      Runtime: python3.11
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-Lambda1-Function'
@@ -149,7 +149,7 @@ Resources:
         - FileDownloaderRole
         - Arn
       Handler: lambda.handler
-      Runtime: python3.10
+      Runtime: python3.11
       MemorySize: 128
       Timeout: 30
       FunctionName: !Sub '${AppCode}-${Environment}-Lambda2-Function'

@@ -289,20 +289,20 @@ Resources:
       Description: !Sub 'Layer for utils "'
       ContentUri: ../src/layers/utils/
       CompatibleRuntimes:
-        - 'python3.10'
+        - 'python3.11'
       LayerName: !Sub '${AppCode}-${Environment}-Utils'
     Metadata:
-      BuildMethod: python3.10   # Required to have AWS SAM build this layer
+      BuildMethod: python3.11   # Required to have AWS SAM build this layer
   ModelsLayer:
     Type: 'AWS::Serverless::LayerVersion'
     Properties:
       Description: !Sub 'Layer for models "'
       ContentUri: ../src/layers/models/
       CompatibleRuntimes:
-        - 'python3.10'
+        - 'python3.11'
       LayerName: !Sub '${AppCode}-${Environment}-Models'
     Metadata:
-      BuildMethod: python3.10   # Required to have AWS SAM build this layer
+      BuildMethod: python3.11   # Required to have AWS SAM build this layer
 
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -385,7 +385,7 @@ Resources:
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-data-load'
-      Runtime: 'python3.10'
+      Runtime: 'python3.11'
       CodeUri: '../src/functions/dataload/'
       MemorySize: 256
       Timeout: 300
@@ -417,7 +417,7 @@ Resources:
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-dynamo-stream'
-      Runtime: 'python3.10'
+      Runtime: 'python3.11'
       CodeUri: '../src/functions/dynamostream/'
       MemorySize: 256
       Timeout: 300
@@ -449,7 +449,7 @@ Resources:
     Properties:
       Handler: 'lambda.handler'
       FunctionName: !Sub '${AppCode}-${Environment}-UserAPIFunction'
-      Runtime: 'python3.10'
+      Runtime: 'python3.11'
       CodeUri: '../src/functions/user_api/'
       MemorySize: 256
       Timeout: 300

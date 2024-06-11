@@ -394,7 +394,7 @@ Resources:
           - PipelineActionFunctionRole
           - Arn
         Handler: lambda.handler
-        Runtime: python3.10
+        Runtime: python3.11
         MemorySize: 128
         Timeout: 10
         FunctionName: !Sub '${AppCode}-PipelineActionFunction'
@@ -435,7 +435,7 @@ Resources:
           - PipelineSNSFunctioRole
           - Arn
         Handler: lambda.handler
-        Runtime: python3.10
+        Runtime: python3.11
         MemorySize: 128
         Timeout: 10
         FunctionName: !Sub '${AppCode}-PipelineSNSFunction'

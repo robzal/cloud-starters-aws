@@ -582,7 +582,7 @@ Resources:
           - PipelineRole
           - Arn
         Handler: lambda.handler
-        Runtime: python3.10
+        Runtime: python3.11
         MemorySize: 128
         Timeout: 300
         FunctionName: !Sub '${AppCode}-PipelineCommitFetchLambda'
@@ -610,7 +610,7 @@ Resources:
           - PipelineRole
           - Arn
         Handler: lambda.handler
-        Runtime: python3.10
+        Runtime: python3.11
         MemorySize: 128
         Timeout: 30
         FunctionName: !Sub '${AppCode}-PipelineCommitEventLambda'
@@ -638,7 +638,7 @@ Resources:
           - PipelineRole
           - Arn
         Handler: lambda.handler
-        Runtime: python3.10
+        Runtime: python3.11
         MemorySize: 128
         Timeout: 30
         FunctionName: !Sub '${AppCode}-PipelineNextExecutionLambda'
