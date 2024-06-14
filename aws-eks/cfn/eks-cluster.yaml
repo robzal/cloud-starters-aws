@@ -16,13 +16,13 @@ Parameters:
     Description: The desired name of your AWS EKS Cluster.
   EKSClusterVersion:
     Type: String
-    Default: 1.25
+    Default: 1.29
     AllowedValues: 
-      - 1.23
-      - 1.24
-      - 1.25
       - 1.26
       - 1.27
+      - 1.28
+      - 1.29
+      - 1.30
     Description: The desired version of your AWS EKS Cluster.
   EKSClusterSubnets:
     Type: CommaDelimitedList
@@ -32,7 +32,7 @@ Parameters:
     Default: sg-0dfcbfcecce3f0460  
   EKSClusterPublicIPAllowList:
     Type: CommaDelimitedList
-    Default: 110.174.252.143/32 
+    Default: 1.2.3.4/32 
   EKSClusterRoleName:
     Type: String
     Default: eks-demo-admin-EKS-Cluster-Role 
@@ -156,6 +156,7 @@ Resources:
                 Resource: !GetAtt EKSKMSKey.Arn
       ManagedPolicyArns:
           - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+          - arn:aws:iam::aws:policy/AmazonEKSVPCResourceController
           - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
   EKSClusterLoadBalancerRole:
     Type: AWS::IAM::Role
@@ -175,6 +176,7 @@ Resources:
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                   "StringEquals": {
+                    "oidc.eks.${AWS::Region}.amazonaws.com/id/${OIDCIssuerID}:aud": "sts.amazonaws.com",
                     "oidc.eks.${AWS::Region}.amazonaws.com/id/${OIDCIssuerID}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
                   }
                 }
@@ -339,37 +341,6 @@ Resources:
             - elasticloadbalancing:ModifyRule
             Resource: "*"
 
-  # EKSClusterSecurityGroup:
-  #     Type: 'AWS::EC2::SecurityGroup'
-  #     Properties:
-  #         GroupName: !Sub '${AppCode}-${Environment}-eks-cluster-sg'
-  #         GroupDescription: Enable ALB and local VPC access to the ECS Task
-  #         VpcId: !Ref VPCID
-  #         SecurityGroupIngress:
-  #             - IpProtocol: '-1'
-  #               FromPort: !Ref ECSTaskPort
-  #               ToPort: !Ref ECSTaskPort
-  #               SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
-  #             - IpProtocol: '-1'
-  #               FromPort: !Ref ECSTaskPort
-  #               ToPort: !Ref ECSTaskPort
-  #               CidrIp: !Ref VPCCIDRBlock
-  #         SecurityGroupEgress:
-  #             - IpProtocol: '-1'
-  #               CidrIp: 0.0.0.0/0
-
-
-  # CidrIp: String
-  # CidrIpv6: String
-  # Description: String
-  # FromPort: Integer
-  # IpProtocol: String
-  # SourcePrefixListId: String
-  # SourceSecurityGroupId: String
-  # SourceSecurityGroupName: String
-  # SourceSecurityGroupOwnerId: String
-  # ToPort: Integer
-
   EKSClusterLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
@@ -511,14 +482,14 @@ Resources:
         MaxBatchSize: "1"
         MinInstancesInService: !Ref EKSWindowsNodesMin
         PauseTime: PT5M
-  # EKSClusterFingerprintFunctionLogGroup:
-  #     Type: 'AWS::Logs::LogGroup'
-  #     Properties:
-  #         LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Cluster-Fingerprint-Function'
-  #         RetentionInDays: 14
-
+  EKSClusterFingerprintFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+          LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Cluster-Fingerprint-Function'
+          RetentionInDays: 14
   EKSClusterFingerprintFunction:
-    Type: AWS::Lambda::Function 
+    Type: AWS::Lambda::Function
+    DependsOn: EKSClusterFingerprintFunctionLogGroup
     Properties:
       Code:
         S3Bucket:

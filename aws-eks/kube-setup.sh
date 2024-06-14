@@ -23,6 +23,9 @@ kubectl_info
 echo "Patching Config Map."
 kube_configmap_patch
 
+echo "Patching Config Map VPC."
+kube_manifest_apply ./k8s/aws-configmap-vpc-windows.yaml .k8s-aws-configmap-vpc-windows.yaml
+
 echo "Setting up EBS CSI Driver."
 kube_kustomization_apply "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=master"
 
@@ -34,8 +37,13 @@ echo "Setting Up Load Balancer Service Account."
 kube_manifest_apply ./k8s/aws-load-balancer-service-account.yaml .k8s-aws-load-balancer-service-account.yaml
 
 echo "Setting Up Cert Manager."
-kube_manifest_apply ./k8s/cert-manager.yaml .k8s-cert-manager.yaml --validate=false
+kube_manifest_apply ./k8s/cert-manager_1_5_0.yaml .k8s-cert-manager_1_5_0.yaml --validate=false
+
+echo "Waiting for Cert Manager to initialise."
+sleep 300
 
 echo "Adding the load bal controller (already modified as per AWS doco)"
 #https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
-kube_manifest_apply ./k8s/aws-load-balancer-2_2_0_full.yaml .k8s-aws-load-balancer-2_2_0_full.yaml --validate=false
+#https://docs.aws.amazon.com/eks/latest/userguide/lbc-manifest.html
+kube_manifest_apply ./k8s/aws-load-balancer-2_7_2_full.yaml .k8s-aws-load-balancer-2_7_2_full.yaml --validate=false
+kube_manifest_apply ./k8s/aws-load-balancer-2_7_2_ingclass.yaml .k8s-aws-load-balancer-2_7_2_ingclass.yaml --validate=false

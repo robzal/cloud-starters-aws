@@ -4,6 +4,7 @@ data:
     - groups:
       - system:bootstrappers
       - system:nodes
+      - eks:kube-proxy-windows # This group is required for Windows DNS resolution to work
       rolearn: arn:aws:iam::${DEPLOYMENT_ACCOUNT}:role/${EKS_NODE_INSTANCE_ROLE_NAME}
       username: system:node:{{EC2PrivateDNSName}}
     - groups:

@@ -4,7 +4,6 @@ from crhelper import CfnResource
 import ssl
 import socket
 import hashlib
-    
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -14,24 +13,31 @@ def calc_fingerprint(hostname, port):
 
     logger.info("Checking ssl fingerprint for {}".format(hostname))
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)
-    wrappedSocket = ssl.wrap_socket(sock)
-    
+    fingerprint = "Empty"
+
     try:
-        wrappedSocket.connect((hostname, port))
-    except:
+        print ("Connecting")
+        context = ssl.create_default_context()
+
+        sock = socket.create_connection((hostname, port))
+        wrappedSocket = context.wrap_socket(sock, server_hostname=hostname)
+        print(wrappedSocket.version())
+    except Exception as ex:
+        print (ex)
         response = False
     else:
         der_cert_bin = wrappedSocket.getpeercert(True)
         pem_cert = ssl.DER_cert_to_PEM_cert(wrappedSocket.getpeercert(True))
-        #print(pem_cert)
+        # ssl.get_server_certificate()
+        print ("pem cert")
+        print(pem_cert)
         
-        #Thumbprint
+        fingerprint = hashlib.sha256(der_cert_bin).hexdigest()
+        print("SHA256: " + fingerprint)
         fingerprint = hashlib.sha1(der_cert_bin).hexdigest()
         print("SHA1: " + fingerprint)
-    
-    wrappedSocket.close()    
+        wrappedSocket.close()
+
     print ("Done")
     return fingerprint
 
