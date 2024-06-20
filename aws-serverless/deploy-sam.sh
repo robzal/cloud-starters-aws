@@ -8,13 +8,10 @@
 set -e 
 
 . ./scripts/aws_functions.sh
+. ./scripts/aws_sam_functions.sh
 
 load_env $1 $2
 set_aws_creds $1 $3 $4
 
-build_layers
-upload_layers $1 $AWS_PROFILE ${DEPLOYMENT_BUCKET} %%functionname 
-build_lambdas
-upload_lambdas $1 $AWS_PROFILE ${DEPLOYMENT_BUCKET} %%functionname 
-build_docker
-upload_docker $1 $AWS_PROFILE ${ECR_REGISTRY} true
+echo "Deploying Serverless Stack into Primary Region."
+deploy_sam_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-serverless-sam-solution cfn/serverless-sam.yaml cfn/serverless-sam.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  

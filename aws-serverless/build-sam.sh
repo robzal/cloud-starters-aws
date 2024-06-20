@@ -8,13 +8,16 @@
 set -e 
 
 . ./scripts/aws_functions.sh
+. ./scripts/aws_sam_functions.sh
 
 load_env $1 $2
 set_aws_creds $1 $3 $4
 
-build_layers
-upload_layers $1 $AWS_PROFILE ${DEPLOYMENT_BUCKET} %%functionname 
-build_lambdas
-upload_lambdas $1 $AWS_PROFILE ${DEPLOYMENT_BUCKET} %%functionname 
+echo "Building Serverless Stack."
+build_sam_stack $1 $AWS_PROFILE cfn/serverless-sam.yaml ${SAM_DEBUG_OPTION}
+package_sam_stack $1 $AWS_PROFILE  ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${SAM_DEBUG_OPTION}
+
+echo "Building Docker Images."
 build_docker
+echo "Uploading Docker Images."
 upload_docker $1 $AWS_PROFILE ${ECR_REGISTRY} true

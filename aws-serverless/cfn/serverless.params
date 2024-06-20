@@ -1,0 +1,13 @@
+Environment=${ENVIRONMENT}
+AppCode=${APP_CODE}
+LambdaBucket=${DEPLOYMENT_BUCKET}
+ControlSFNFunctionBucketKey=${CONTROL_FUNCTION_FILENAME}
+ProcessSFNFunctionBucketKey=${PROCESS_FUNCTION_FILENAME}
+FilesAPIFunctionBucketKey=${FILES_API_FUNCTION_FILENAME}
+UtilsLayerBucketKey=${UTILS_LAYER_FILENAME}
+ModelsLayerBucketKey=${MODELS_LAYER_FILENAME}
+ProcessQueueManagerSchedule=${PROCESS_STATE_MACHINE_SCHEDULE}
+CreateAPIKey=${API_KEY_REQUIRED}
+APIDeploymentStage=${API_DEPLOYMENT_STAGE}
+APIKeyValue=${API_KEY_VALUE}
+PrimaryRegion=${PRIMARY_REGION}

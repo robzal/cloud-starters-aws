@@ -1,13 +1,36 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: 'AWS::Serverless-2016-10-31'
-Description: 'The following CloudFormation deploys demo serverless resources'
+Description: 'This template deploys a number of AWS Serverless resources in std (non SAM) format'
 Parameters:
-  AppCode:
-    Type: 'String'
-    Default: 'demo-serverless'
   Environment:
     Type: 'String'
     Default: 'dev'
+  AppCode:
+    Type: 'String'
+    Default: 'cnp'
+  LambdaBucket:
+    Type: String
+    Default: 238160719262-deployments
+    Description: Bucket Name for lambda lambda code bundles.
+  ControlSFNFunctionBucketKey:
+    Type: String
+    Default: state-machine-control-1.0.0.zip
+    Description: Bucket Key for control lambda code bundle.
+  ProcessSFNFunctionBucketKey:
+    Type: String
+    Default: state-machine-process-1.0.0.zip
+    Description: Bucket Key for process lambda code bundle.
+  FilesAPIFunctionBucketKey:
+    Type: String
+    Default: files-api-1.0.0.zip
+    Description: Bucket Key for API lambda code bundle.
+  UtilsLayerBucketKey:
+    Type: String
+    Default: utils-layer-1.0.0.zip
+    Description: Bucket Key for utils later code bundle.
+  ModelsLayerBucketKey:
+    Type: String
+    Default: models-layer-1.0.0.zip
+    Description: Bucket Key for models later code bundle.
   ProcessQueueManagerSchedule:
     Type: String
     Default: "rate(5 minutes)"
@@ -29,22 +52,18 @@ Parameters:
     Default: "ap-southeast-2"
 
 Conditions:
-    DoAPIKEY: !Equals 
-      - !Ref CreateAPIKey
-      - 'true'
-
-Globals:
-  Function:
-    Environment:
-      Variables:
-        ENVIRONMENT: !Sub '${Environment}'
-        APP_CODE: !Sub '${AppCode}'
+  DoAPIKEY: !Equals 
+    - !Ref CreateAPIKey
+    - 'true'
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
 
 Resources:
   FileDataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-${AppCode}-${Environment}-sam-data-load'
+      BucketName: !Sub '${AWS::AccountId}-${AppCode}-${Environment}-file-data'
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -52,7 +71,7 @@ Resources:
               SSEAlgorithm: 'aws:kms'
       LoggingConfiguration:
         DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/data-load-sam
+        LogFilePrefix: s3serveraccesslogs/file-data
       NotificationConfiguration:
         QueueConfigurations:
           - Event: s3:ObjectCreated:*
@@ -60,7 +79,7 @@ Resources:
   ControlDynamoDBTable:
     Type: 'AWS::DynamoDB::Table'
     Properties:
-      TableName: !Sub '${AppCode}-${Environment}-sam-Process-Control'
+      TableName: !Sub '${AppCode}-${Environment}-Process-Control'
       AttributeDefinitions:
         - AttributeName: 'Id'
           AttributeType: 'S'
@@ -71,7 +90,7 @@ Resources:
   FilesDynamoDBTable:
     Type: 'AWS::DynamoDB::Table'
     Properties:
-      TableName: !Sub '${AppCode}-${Environment}-sam-Files'
+      TableName: !Sub '${AppCode}-${Environment}-Files'
       AttributeDefinitions:
         - AttributeName: 'Id'
           AttributeType: 'S'
@@ -79,11 +98,11 @@ Resources:
         - AttributeName: 'Id'
           KeyType: 'HASH'
       BillingMode: 'PAY_PER_REQUEST'
-        
+
   S3ReadWritePolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
-      ManagedPolicyName: !Sub '${AppCode}-${Environment}-sam-S3-ReadWrite-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-S3-ReadWrite-Policy'
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -99,12 +118,12 @@ Resources:
               - 's3:ListMultipartUploadParts'
               - 's3:AbortMultipartUpload'
             Resource:
-              - !Sub 'arn:aws:s3:::${AWS::AccountId}-${AppCode}-${Environment}-sam-file-data'
-              - !Sub 'arn:aws:s3:::${AWS::AccountId}-${AppCode}-${Environment}-sam-file-data/*'
+              - !Sub 'arn:aws:s3:::${AWS::AccountId}-${AppCode}-${Environment}-file-data'
+              - !Sub 'arn:aws:s3:::${AWS::AccountId}-${AppCode}-${Environment}-file-data/*'
   DynamoReadWritePolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
-      ManagedPolicyName: !Sub '${AppCode}-${Environment}-sam-DynamoDB-ReadWrite-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-DynamoDB-ReadWrite-Policy'
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -128,7 +147,7 @@ Resources:
   StepFunctionPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
-      ManagedPolicyName: !Sub '${AppCode}-${Environment}-sam-StepFunction-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-StepFunction-Policy'
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -138,11 +157,11 @@ Resources:
               - 'states:StartExecution'
               - 'states:ListExecutions'
             Resource:
-              - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-sam-Process-Queue-Machine'
+              - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Process-Queue-Machine'
   SQSPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
-      ManagedPolicyName: !Sub '${AppCode}-${Environment}-sam-SQS-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-SQS-Policy'
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -158,7 +177,7 @@ Resources:
   CloudwatchPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
-      ManagedPolicyName: !Sub '${AppCode}-${Environment}-sam-Cloudwatch-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-Cloudwatch-Policy'
       PolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -199,67 +218,83 @@ Resources:
       - !Ref 'ProcessSQSQueue'
 
   ControlSFNFunction:
-    Type: 'AWS::Serverless::Function'
+    Type: 'AWS::Lambda::Function'
     DependsOn: ControlSFNFunctionLogGroup
     Properties:
-      FunctionName: !Sub '${AppCode}-${Environment}-sam-Process-Queue-Control-Lambda'
-      CodeUri: '../src/functions/state-machine-control/'
+      FunctionName: !Sub '${AppCode}-${Environment}-Process-Queue-Control-Lambda'
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref ControlSFNFunctionBucketKey
       Layers:
         - !Ref UtilsLayer
       Handler: lambda.handler
+      Role: !GetAtt   ControlSFNFunctionIAMRole.Arn
       Runtime: python3.11
       MemorySize: 128
       Timeout: 10
-      Tracing: 'Active'
-      Policies:
-        - 'AWSLambdaBasicExecutionRole'
-        - !Ref 'StepFunctionPolicy'
-        - !Ref 'DynamoReadWritePolicy'
-        - !Ref 'SQSPolicy'
-        - Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Action:
-                - 'iam:PassRole'
-              Resource: '*'
-            - Effect: Allow
-              Action:
-                - 'lambda:InvokeFunction'
-              Resource: 
-                - !GetAtt 'ProcessSQSFunction.Arn'
       Environment:
         Variables:
           APP_CODE: !Ref AppCode
           ENVIRONMENT: !Ref Environment
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
-          STEP_FUNCTION_ARN: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-sam-Process-Queue-Machine'
+          STEP_FUNCTION_ARN: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Process-Queue-Machine'
           DYNAMODB_CONTROL_TABLE_ARN: !GetAtt ControlDynamoDBTable.Arn
           PROCESSOR_LAMBDA_NAME: !Ref ProcessSQSFunction
           PROCESSOR_LAMBDA_ARN: !GetAtt ProcessSQSFunction.Arn
   ControlSFNFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-sam-Process-Queue-Control-Lambda'
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Process-Queue-Control-Lambda'
       RetentionInDays: 14
-  ProcessSQSFunction:
-    Type: 'AWS::Serverless::Function'
-    DependsOn: ProcessSQSFunctionLogGroup
+  ControlSFNFunctionIAMRole:
+    Type: 'AWS::IAM::Role'
     Properties:
-      FunctionName: !Sub '${AppCode}-${Environment}-sam-Process-Queue-Execute-Lambda'
-      CodeUri: '../src/functions/state-machine-process/'
-      Layers:
-        - !Ref UtilsLayer
-      Handler: lambda.handler
-      Runtime: python3.11
-      MemorySize: 128
-      Timeout: 300
-      Tracing: 'Active'
-      Policies:
-        - 'AWSLambdaBasicExecutionRole'
+      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Control-Lambda-IAMRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - !Ref 'StepFunctionPolicy'
         - !Ref 'DynamoReadWritePolicy'
         - !Ref 'SQSPolicy'
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource: 
+                  - !GetAtt 'ProcessSQSFunction.Arn'
+  ProcessSQSFunction:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: ProcessSQSFunctionLogGroup
+    Properties:
+      FunctionName: !Sub '${AppCode}-${Environment}-Process-Queue-Execute-Lambda'
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref ProcessSFNFunctionBucketKey
+      Layers:
+        - !Ref UtilsLayer
+      Handler: lambda.handler
+      Role: !GetAtt ProcessSQSFunctionIAMRole.Arn
+      Runtime: python3.11
+      MemorySize: 128
+      Timeout: 300
       Environment:
         Variables:
           APP_CODE: !Ref AppCode
@@ -270,13 +305,98 @@ Resources:
   ProcessSQSFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-sam-Process-Queue-Execute-Lambda'
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Process-Queue-Execute-Lambda'
       RetentionInDays: 14
+  ProcessSQSFunctionIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Execute-Lambda-IAMRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Ref 'StepFunctionPolicy'
+        - !Ref 'DynamoReadWritePolicy'
+        - !Ref 'SQSPolicy'
+
+  FileAPIFunction:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: FileAPIFunctionLogGroup
+    Properties:
+      FunctionName: !Sub '${AppCode}-${Environment}-File-API'
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref FilesAPIFunctionBucketKey
+      Layers:
+        - !Ref UtilsLayer
+        - !Ref ModelsLayer
+      Handler: lambda.handler
+      Role: !GetAtt FileAPIFunctionIAMRole.Arn
+      Runtime: python3.11
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ENVIRONMENT: !Ref Environment
+          DYNAMODB_FILES_TABLE_NAME: !Ref FilesDynamoDBTable
+          DYNAMODB_FILES_TABLE_ARN: !GetAtt FilesDynamoDBTable.Arn 
+  FileAPIFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-File-API'
+      RetentionInDays: 14
+  FileAPIFunctionIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-File-API-Lambda-IAMRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Ref 'DynamoReadWritePolicy'
+
+  UtilsLayer:
+    Type: 'AWS::Lambda::LayerVersion'
+    Properties:
+      LayerName: !Sub '${AppCode}-${Environment}-Utils-Layer'
+      Content:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref UtilsLayerBucketKey
+      CompatibleRuntimes:
+        - python3.10
+        - python3.11
+  ModelsLayer:
+    Type: 'AWS::Lambda::LayerVersion'
+    Properties:
+      LayerName: !Sub '${AppCode}-${Environment}-Models-Layer'
+      Content:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref ModelsLayerBucketKey
+      CompatibleRuntimes:
+        - python3.10
+        - python3.11
 
   ProcessQueueStateMachineExecutionRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${AppCode}-${Environment}-sam-Process-Queue-Machine-Role'
+      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Machine-Role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -306,12 +426,12 @@ Resources:
   ProcessQueueStateMachineLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-sam-Process-Queue-Machine'
+      LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-Process-Queue-Machine'
       RetentionInDays: 14
   ProcessQueueStateMachine:
     Type: 'AWS::StepFunctions::StateMachine'
     Properties:
-      StateMachineName: !Sub '${AppCode}-${Environment}-sam-Process-Queue-Machine'
+      StateMachineName: !Sub '${AppCode}-${Environment}-Process-Queue-Machine'
       DefinitionString:
         !Sub
           - |-
@@ -398,7 +518,7 @@ Resources:
   ProcessQueueScheduleRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AppCode}-${Environment}-sam-Process-Queue-Machine-Schedule-Role
+      RoleName: !Sub ${AppCode}-${Environment}-Process-Queue-Machine-Schedule-Role
       Description: Role used by event rule responsible for triggering the queue process state machine.
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -422,66 +542,6 @@ Resources:
         Id: ProcessQueueScheduleRuleTarget
         RoleArn: !GetAtt 'ProcessQueueScheduleRole.Arn'
 
-  UtilsLayer:
-    Type: 'AWS::Serverless::LayerVersion'
-    Properties:
-      Description: !Sub 'Layer for utils "'
-      ContentUri: ../src/layers/utils/python/
-      CompatibleRuntimes:
-        - 'python3.11'
-      LayerName: !Sub '${AppCode}-${Environment}-sam-Utils-Layer'
-    Metadata:
-      BuildMethod: python3.11   # Required to have AWS SAM build this layer
-  ModelsLayer:
-    Type: 'AWS::Serverless::LayerVersion'
-    Properties:
-      Description: !Sub 'Layer for models "'
-      ContentUri: ../src/layers/models/python/
-      CompatibleRuntimes:
-        - 'python3.11'
-      LayerName: !Sub '${AppCode}-${Environment}-sam-Models-Layer'
-    Metadata:
-      BuildMethod: python3.11   # Required to have AWS SAM build this layer
-
-  FileAPIFunctionLogGroup:
-    Type: 'AWS::Logs::LogGroup'
-    Properties:
-      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-sam-FileAPIFunction'
-      RetentionInDays: 14
-  FileAPIFunction:
-    Type: 'AWS::Serverless::Function'
-    DependsOn: FileAPIFunctionLogGroup
-    Properties:
-      FunctionName: !Sub '${AppCode}-${Environment}-sam-FileAPIFunction'
-      Handler: 'lambda.handler'
-      Runtime: 'python3.11'
-      CodeUri: '../src/functions/file-api/'
-      MemorySize: 128
-      Timeout: 10
-      Tracing: 'Active'
-      Policies:
-        - 'AWSLambdaBasicExecutionRole'
-        - !Ref 'DynamoReadWritePolicy'
-        - !Ref 'S3ReadWritePolicy'
-      Layers:
-        - !Ref 'UtilsLayer'
-        - !Ref 'ModelsLayer'
-      Environment:
-        Variables:
-          USER_TABLE: !Sub '${AppCode}-${Environment}-sam-users'
-      Events:
-        FilesRoot:
-          Type: Api 
-          Properties:
-            Path: /files
-            Method: any
-            RestApiId: !Ref FileAPI
-        Files:
-          Type: Api 
-          Properties:
-            Path: /files/{proxy+}
-            Method: any
-            RestApiId: !Ref FileAPI
   FileAPICloudWatchRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -493,33 +553,86 @@ Resources:
               Service:
                 - apigateway.amazonaws.com
             Action: 'sts:AssumeRole'
+      RoleName: !Sub "${AppCode}-${Environment}-FileAPI-Role"
       Path: /
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+  FileAPIExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      RoleName: !Sub "${AppCode}-${Environment}-FileAPI-Execution-Role"
+      Path: /
+      Policies:
+        - PolicyName: LambdaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action: 'lambda:*'
+                Resource: !GetAtt FileAPIFunction.Arn
   FileAPIAccount:
     Type: 'AWS::ApiGateway::Account'
     Properties:
-      CloudWatchRoleArn: !GetAtt 
-        - FileAPICloudWatchRole
-        - Arn
+      CloudWatchRoleArn: !GetAtt FileAPICloudWatchRole.Arn 
   FileAPILogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
-      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${FileAPI}/${APIDeploymentStage}'        
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${FileAPIRestApi}/${APIDeploymentStage}'
       RetentionInDays: 14
-  FileAPI:
-    Type: AWS::Serverless::Api
+
+  FileAPIRestApi:
+    Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: !Sub '${AppCode}-${Environment}-sam-FileAPI'
+      ApiKeySourceType: HEADER
+      Description: An API Gateway with a Lambda Integration
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Name: !Sub '${AppCode}-${Environment}-FileAPI'
+  FileAPIResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt FileAPIRestApi.RootResourceId
+      PathPart: '{proxy+}'
+      RestApiId: !Ref FileAPIRestApi
+  FileAPIMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: !If [ DoAPIKEY, true, false ]
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        ConnectionType: INTERNET
+        Credentials: !GetAtt FileAPIExecutionRole.Arn
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_MATCH
+        TimeoutInMillis: 29000
+        Type: AWS_PROXY
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FileAPIFunction.Arn}/invocations'
+      OperationName: 'lambda'
+      ResourceId: !Ref FileAPIResource
+      RestApiId: !Ref FileAPIRestApi
+  FileAPIModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref FileAPIRestApi
+      Schema: {}
+  FileAPIStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref FileAPIDeployment
+      Description: FileAPI Demo Function Stage
+      RestApiId: !Ref FileAPIRestApi
       StageName: !Ref APIDeploymentStage
-      Auth:
-        ApiKeyRequired: !If [ DoAPIKEY, true, false ]
-        UsagePlan:
-          CreateUsagePlan: PER_API
-          Description: Usage plan for this API
-          Throttle:
-            BurstLimit: 200
-            RateLimit: 100
       AccessLogSetting:
         DestinationArn: !GetAtt FileAPILogGroup.Arn
         Format: >-
@@ -528,12 +641,48 @@ Resources:
           "user":"$context.identity.user","requestTime":"$context.requestTime",
           "eventType":"$context.eventType","routeKey":"$context.routeKey",
           "status":"$context.status","connectionId":"$context.connectionId"}
-      MethodSettings:
-        - MetricsEnabled: true
-          HttpMethod: "*"
-          LoggingLevel: "INFO"
-          ResourcePath: "/*"
-       
+  FileAPIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: FileAPIMethod
+    Properties:
+      Description: Lambda API Deployment
+      RestApiId: !Ref FileAPIRestApi
+
+  FileAPIUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: FileAPIRestApi
+    Properties:
+      ApiStages:
+      - ApiId:
+          Ref: FileAPIRestApi
+        Stage:
+          Ref: FileAPIStage
+      Description: Usage plan for this API
+      Throttle:
+        BurstLimit: 200
+        RateLimit: 100
+  FileAPIApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: FileAPIUsagePlan
+    Properties:
+      Enabled: true
+      Name: API Key for Lambda Demo FileAPI
+      Value: !Ref APIKeyValue
+      # StageKeys:
+      # - RestApiId:
+      #     Ref: FileAPIRestApi
+      #   StageName:
+      #     Ref: FileAPIStage
+  FileAPIUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    DependsOn: FileAPIApiKey
+    Properties:
+      KeyId:
+        Ref: FileAPIApiKey
+      KeyType: API_KEY
+      UsagePlanId:
+        Ref: FileAPIUsagePlan
+
 Outputs:
-  FileAPI:
-    Value: !Sub https://${FileAPI}.execute-api.${AWS::Region}.amazonaws.com/${APIDeploymentStage}/files
+  FileAPIRestApi:
+    Value: !Sub https://${FileAPIRestApi}.execute-api.${AWS::Region}.amazonaws.com/${APIDeploymentStage}/files

@@ -29,6 +29,8 @@ deploy_sam_stack () {
 
 	envsubst < .params.tmp > .params
 
+    export OLDIFS=$IFS
+    export IFS=$'\n'
 	sam deploy \
 		--region $1 \
         --profile $2 \
@@ -41,6 +43,7 @@ deploy_sam_stack () {
 		--parameter-overrides $(cat .params) \
 		$8
         #${SAM_DEBUG_OPTION}
+    export IFS=$OLDIFS
 }
 
 run_sam_local () {
