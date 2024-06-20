@@ -8,6 +8,9 @@ from botocore.session import Session
 from botocore.client import Config
 
 from time import sleep
+from datetime import timedelta
+import datetime
+import pytz
 from logger import *
 from config import *
 
@@ -47,8 +50,8 @@ def read_env_config(event):
         config['dynamo_control_table_arn'] = os.environ.get('DYNAMODB_CONTROL_TABLE_ARN', '')
         config['processor_lambda_name'] = os.environ.get('PROCESSOR_LAMBDA_NAME', '')
         config['processor_lambda_arn'] = os.environ.get('PROCESSOR_LAMBDA_NAME', '')
-
-        config['max_concurrent_processor_lambdas'] = "5"
+        config['max_concurrent_processor_lambdas'] =  os.environ.get('PROCESSOR_LAMBDA_MAX_CONCURRENT', '10')
+        config['processor_concurrency_query_minutes'] =  os.environ.get('PROCESSOR_LAMBDA_EXECUTION_QUERY_MINS', '2')
 
     except Exception as error:
         logger.info('Config Read error')
@@ -89,24 +92,60 @@ def check_messages_exist():
         return True
 
 def spare_lambda_capacity():
-    # TODO code to get current executions and subtract from max concurrency
-    return int(config['max_concurrent_processor_lambdas'])
 
-        # metric_stats = {
-        #     "Namespace": "AWS/Lambda",
-        #     "StartTime": (current_time - datetime.timedelta(seconds=10)).isoformat(),
-        #     "EndTime": current_time.isoformat(),
-        #     "FunctionName": "serverless-demo-admin-Process-Queue-Control-Lambda",
-        #     "Period": 60,
-        #      {
-        #           "MetricName": "ConcurrentExecutions ",
-        #           "Statistics": ["Max"],
-        #           "Unit": "Count"
-        #       }
-        # }
-        # response = cw.get_metric_statistics(**metric_stats)
-        # if response["Datapoints"]:
-        #     return response["Datapoints"][0][stats["Statistics"][0]]
+    spare = 0
+    try:
+        tz = pytz.timezone('UTC')
+        function_name = config['processor_lambda_name'] 
+        query_mins = int(config['processor_concurrency_query_minutes'])
+        max_concurrent_lambda_count = int(config['max_concurrent_processor_lambdas'])
+        stat = [
+        {
+            "Id": "lambdacount",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/Lambda",
+                    "MetricName": "ConcurrentExecutions",
+                    "Dimensions": [
+                        {
+                            "Name": "FunctionName",
+                            "Value": function_name
+                        }
+                    ]
+                },
+                "Period": 60,
+                "Stat": "Maximum",
+                "Unit": "Count"
+            }
+        }
+        ]
+
+        response = cw.get_metric_data(
+            MetricDataQueries= stat,
+            StartTime=datetime.datetime.now(tz) - timedelta(minutes=query_mins),
+            EndTime=datetime.datetime.now(tz)
+        )
+
+        logger.debug("metric response " + str(response))
+        if response["MetricDataResults"][0]["Values"]:
+            logger.info ("Recent ConcurrentExecution data available")
+            logger.info (response["MetricDataResults"][0]["Values"][0])
+            current_concurrent_lambda_count = int(response["MetricDataResults"][0]["Values"][0])
+
+            if max_concurrent_lambda_count - current_concurrent_lambda_count > 0:
+                spare = max_concurrent_lambda_count - current_concurrent_lambda_count
+                logger.info ("SQS Processor capacity available. Able to launch x lambdas")
+            else:
+                spare = 0
+                logger.info ("No SQS Processor capacity available")
+        else:
+            logger.info ("No ConcurrentExecution data available. Safe to launch")
+            spare = max_concurrent_lambda_count
+
+    except Exception as error:
+        logger.info('Error determining current lambda capacity.')
+        logger.info(str(error))
+    return spare
 
 def start_processors(count):
     try:

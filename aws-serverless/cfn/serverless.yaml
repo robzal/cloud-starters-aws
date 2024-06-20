@@ -35,6 +35,18 @@ Parameters:
     Type: String
     Default: "rate(5 minutes)"
     Description: Schedule, cron or rate, for state machine to run.
+  ProcessLambdaExecutionQueryMins:
+    Type: String
+    Default: "2"
+  ProcessLambdaMaxConcurrent:
+    Type: String
+    Default: "10"
+  ProcessLambdaSQSBatchSize:
+    Type: String
+    Default: "5"
+  ProcessLambdaTimeoutSecs:
+    Type: String
+    Default: "300"
   CreateAPIKey:
     Type: 'String'
     Default: 'false'
@@ -242,6 +254,8 @@ Resources:
           DYNAMODB_CONTROL_TABLE_ARN: !GetAtt ControlDynamoDBTable.Arn
           PROCESSOR_LAMBDA_NAME: !Ref ProcessSQSFunction
           PROCESSOR_LAMBDA_ARN: !GetAtt ProcessSQSFunction.Arn
+          PROCESSOR_LAMBDA_MAX_CONCURRENT: !Ref ProcessLambdaMaxConcurrent
+          PROCESSOR_LAMBDA_EXECUTION_QUERY_MINS: !Ref ProcessLambdaExecutionQueryMins
   ControlSFNFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -294,7 +308,7 @@ Resources:
       Role: !GetAtt ProcessSQSFunctionIAMRole.Arn
       Runtime: python3.11
       MemorySize: 128
-      Timeout: 300
+      Timeout: !Ref ProcessLambdaTimeoutSecs
       Environment:
         Variables:
           APP_CODE: !Ref AppCode
@@ -302,6 +316,8 @@ Resources:
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
           DYNAMODB_FILES_TABLE_ARN: !GetAtt FilesDynamoDBTable.Arn 
+          PROCESSOR_LAMBDA_SQS_BATCH_SIZE: !Ref ProcessLambdaSQSBatchSize
+          PROCESSOR_LAMBDA_TIMEOUT_SECS: !Ref ProcessLambdaTimeoutSecs
   ProcessSQSFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
