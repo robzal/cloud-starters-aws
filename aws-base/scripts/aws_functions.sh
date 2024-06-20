@@ -94,15 +94,55 @@ build_lambdas () {
         then
             mkdir $P_DIR;
         fi
+        if [ ! -d $P_DIR/lambdas ] 
+        then
+            mkdir $P_DIR/lambdas;
+        fi
         rm -rf $B_DIR/$d/*
         pip3 install -t $B_DIR/$d -r $F_DIR/$d/requirements.txt
-        cp $F_DIR/$d/lambda.py $B_DIR/$d
-        if [ -f $P_DIR/$d-$VERSION.zip ] 
+        cp $F_DIR/$d/*.py $B_DIR/$d
+        if [ -f $P_DIR/lambdas/$d-$VERSION.zip ] 
         then
-            rm $P_DIR/$d-$VERSION.zip;
+            rm $P_DIR/lambdas/$d-$VERSION.zip;
         fi
         pushd $B_DIR/$d
-        zip -r ../../$P_DIR/$d-$VERSION.zip *
+        zip -r ../../$P_DIR/lambdas/$d-$VERSION.zip *
+        popd
+    done
+}
+
+build_layers () {
+
+    F_DIR=$PROJECT_ROOT/src/layers
+    B_DIR=$PROJECT_ROOT/build
+    P_DIR=$PROJECT_ROOT/packages
+    for d in $(find $F_DIR -type d -mindepth 1 -maxdepth 1 | awk -F/ '{print $NF}'); do 
+        echo $d; 
+        if [ ! -d $B_DIR ] 
+        then
+            mkdir $B_DIR;
+        fi
+        if [ ! -d $B_DIR/$d ] 
+        then
+            mkdir $B_DIR/$d;
+        fi
+        if [ ! -d $P_DIR ] 
+        then
+            mkdir $P_DIR;
+        fi
+        if [ ! -d $P_DIR/layers ] 
+        then
+            mkdir $P_DIR/layers;
+        fi
+        rm -rf $B_DIR/$d/*
+        mkdir $B_DIR/$d/python
+        cp $F_DIR/$d/python/*.py $B_DIR/$d/python
+        if [ -f $P_DIR/layers/$d-$VERSION.zip ] 
+        then
+            rm $P_DIR/layers/$d-$VERSION.zip;
+        fi
+        pushd $B_DIR/$d
+        zip -r ../../$P_DIR/layers/$d-$VERSION.zip *
         popd
     done
 }
@@ -130,7 +170,44 @@ upload_lambdas () {
     # $4 = UPLOAD BUCKET FOLDER
     # $5 = UPLOAD FILE ACL (optional)
 
-    P_DIR=$PROJECT_ROOT/packages
+    P_DIR=$PROJECT_ROOT/packages/lambdas
+    for ff in $(find $P_DIR -type f -maxdepth 1 -name "*.zip") ; do 
+        echo $ff;
+        # package file name
+        f=$(echo $ff | awk -F/ '{print $NF}');
+        # package function name
+        f2=$(echo $f | sed s/"-$VERSION.zip"//);
+        # TODO extact function name from $ff
+
+        k=$4
+        if [ "$4" == "/" ]; then
+            echo "Uploading to Root Folder ";
+            k="";
+        elif [ "$4" == "%%functionname" ]; then
+            echo "Uploading to $f2 Function Name Subfolder ";
+            k=$f2/;
+        else
+            echo "Uploading to $4 ";
+            k=$4
+        fi
+        echo aws s3api put-object --bucket $3 --key $k$f --body $ff --profile $2 --region $1;
+        aws s3api put-object --bucket $3 --key $k$f --body $ff --profile $2 --region $1;
+        if [[ ! -z "$5" ]]; then
+            aws s3api put-object-acl --bucket $3 --key $k$f --acl $5 --profile $2 --region $1;
+        fi
+    done
+
+}
+
+upload_layers () {
+
+    # $1 = AWS REGION
+    # $2 = AWS PROFILE
+    # $3 = UPLOAD BUCKET
+    # $4 = UPLOAD BUCKET FOLDER
+    # $5 = UPLOAD FILE ACL (optional)
+
+    P_DIR=$PROJECT_ROOT/packages/layers
     for ff in $(find $P_DIR -type f -maxdepth 1 -name "*.zip") ; do 
         echo $ff;
         # package file name
@@ -223,6 +300,8 @@ deploy_stack () {
 
 	envsubst < .params.tmp > .params
 
+    export OLDIFS=$IFS
+    export IFS=$'\n'
 	aws cloudformation deploy \
 		--region $1 \
         --profile $2 \
@@ -234,4 +313,5 @@ deploy_stack () {
 		--no-fail-on-empty-changeset \
 		--parameter-overrides $(cat .params) \
 		$8
+    export IFS=$OLDIFS
 }
