@@ -11,6 +11,9 @@ from time import sleep
 from datetime import timedelta
 import datetime
 import pytz
+
+from ProcessConfig import *
+
 from logger import *
 from config import *
 
@@ -37,6 +40,8 @@ class CapacityException(Exception):
     pass
 class StillProcessingException(Exception):
     pass
+class KillSwitchException(Exception):
+    pass
 
 def read_env_config(event):
     try:
@@ -52,13 +57,43 @@ def read_env_config(event):
         config['processor_lambda_arn'] = os.environ.get('PROCESSOR_LAMBDA_NAME', '')
         config['max_concurrent_processor_lambdas'] =  os.environ.get('PROCESSOR_LAMBDA_MAX_CONCURRENT', '10')
         config['processor_concurrency_query_minutes'] =  os.environ.get('PROCESSOR_LAMBDA_EXECUTION_QUERY_MINS', '2')
+        config['processor_stop'] =  os.environ.get('PROCESSOR_STOP', '0')
 
     except Exception as error:
         logger.info('Config Read error')
         logger.info(str(error))
 
-def read_processor_config():
-    pass
+def read_db_config(event):
+    try:
+        logger.info("Reading db config data")
+
+        process_config = ProcessConfig()
+        try:
+            config['max_concurrent_processor_lambdas'] =  process_config.get_item('ParserQueue', 'max_concurrent_processor_lambdas').value
+        except Exception:
+            pass
+        try:
+            config['processor_concurrency_query_minutes'] =  process_config.get_item('ParserQueue', 'processor_concurrency_query_minutes').value
+        except Exception:
+            pass
+        try:
+            config['processor_stop'] =  process_config.get_item('ParserQueue', 'processor_stop').value
+        except Exception:
+            pass
+
+    except Exception as error:
+        logger.info('DB Config Read error')
+        logger.info(str(error))
+
+def check_kill_switch():
+
+    logger.info(config['processor_stop'])
+    if config['processor_stop'] == '0':
+        logger.info('No kill switch. Good to keep going')
+        return False
+    else:
+        logger.info('Kill Switch activated. Dont continue')
+        return True
 
 def check_other_sfn_running():
     logger.info(config)
@@ -134,7 +169,7 @@ def spare_lambda_capacity():
 
             if max_concurrent_lambda_count - current_concurrent_lambda_count > 0:
                 spare = max_concurrent_lambda_count - current_concurrent_lambda_count
-                logger.info ("SQS Processor capacity available. Able to launch x lambdas")
+                logger.info ("Some SQS Processor capacity available. Able to launch {} lambdas".format(str(spare)))
             else:
                 spare = 0
                 logger.info ("No SQS Processor capacity available")
@@ -145,11 +180,12 @@ def spare_lambda_capacity():
     except Exception as error:
         logger.info('Error determining current lambda capacity.')
         logger.info(str(error))
+    logger.info ("SQS Processor capacity available = {}".format(str(spare)))
     return spare
 
 def start_processors(count):
     try:
-        for p in range(1, count):
+        for p in range(0, count):
             response = lambd.invoke(
                 FunctionName=config['processor_lambda_arn'],
                 InvocationType='Event',
@@ -170,7 +206,7 @@ def start_processors(count):
         return True
 
     except Exception as error:
-        logger.info('Config Read error')
+        logger.info('Start Processor error')
         logger.info(str(error))
         return False
 
@@ -182,9 +218,13 @@ def handler(event, context):
     #get os config
     read_env_config(event)
 
-    #get processor config
-    read_processor_config()
+    #get config overrides from DDB table
+    read_db_config(event)
 
+    # check he kill switch
+    if check_kill_switch():
+        raise KillSwitchException()
+       
     # we only want one step function actually controlling processing
     if check_other_sfn_running():
         raise AlreadyRunningException()
@@ -206,7 +246,6 @@ def handler(event, context):
         
     else:
         return
-
 
 if __name__ == '__main__':
     SF_Record = {

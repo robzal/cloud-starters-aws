@@ -93,23 +93,45 @@ Resources:
     Properties:
       TableName: !Sub '${AppCode}-${Environment}-Process-Control'
       AttributeDefinitions:
-        - AttributeName: 'Id'
+        - AttributeName: 'process_name'
+          AttributeType: 'S'
+        - AttributeName: 'metric_name'
           AttributeType: 'S'
       KeySchema:
-        - AttributeName: 'Id'
+        - AttributeName: 'process_name'
           KeyType: 'HASH'
+        - AttributeName: 'metric_name'
+          KeyType: 'RANGE'
       BillingMode: 'PAY_PER_REQUEST'
   FilesDynamoDBTable:
     Type: 'AWS::DynamoDB::Table'
     Properties:
       TableName: !Sub '${AppCode}-${Environment}-Files'
       AttributeDefinitions:
-        - AttributeName: 'Id'
+        - AttributeName: 'id'
+          AttributeType: 'S'
+        - AttributeName: 'filename'
           AttributeType: 'S'
       KeySchema:
-        - AttributeName: 'Id'
+        - AttributeName: 'id'
           KeyType: 'HASH'
       BillingMode: 'PAY_PER_REQUEST'
+      GlobalSecondaryIndexes:
+        -
+          IndexName: 'filename-index'
+          KeySchema:
+            -
+              AttributeName: 'filename'
+              KeyType: 'HASH'
+            -
+              AttributeName: 'id'
+              KeyType: 'RANGE'
+          Projection:
+            NonKeyAttributes:
+              - 'filename'
+              - 'id'
+              - 'date_modified'
+            ProjectionType: 'INCLUDE'
 
   S3ReadWritePolicy:
     Type: 'AWS::IAM::ManagedPolicy'
@@ -208,11 +230,23 @@ Resources:
               - 'logs:DescribeResourcePolicies'
             Resource:
               - '*'
+  CloudwatchMetricsPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-CloudwatchMetrics-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'cloudwatch:GetMetricData'
+            Resource:
+              - '*'
 
   ProcessSQSQueue:
     Type: 'AWS::SQS::Queue'
     Properties:
-      VisibilityTimeout: 900
+      VisibilityTimeout: 120
   ProcessSQSQueuePolicy:
     Type: 'AWS::SQS::QueuePolicy'
     Properties:
@@ -239,6 +273,7 @@ Resources:
         S3Key: !Ref ControlSFNFunctionBucketKey
       Layers:
         - !Ref UtilsLayer
+        - !Ref ModelsLayer
       Handler: lambda.handler
       Role: !GetAtt   ControlSFNFunctionIAMRole.Arn
       Runtime: python3.11
@@ -251,6 +286,7 @@ Resources:
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
           STEP_FUNCTION_ARN: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Process-Queue-Machine'
+          DYNAMODB_CONTROL_TABLE_NAME: !Ref ControlDynamoDBTable
           DYNAMODB_CONTROL_TABLE_ARN: !GetAtt ControlDynamoDBTable.Arn
           PROCESSOR_LAMBDA_NAME: !Ref ProcessSQSFunction
           PROCESSOR_LAMBDA_ARN: !GetAtt ProcessSQSFunction.Arn
@@ -280,6 +316,7 @@ Resources:
         - !Ref 'StepFunctionPolicy'
         - !Ref 'DynamoReadWritePolicy'
         - !Ref 'SQSPolicy'
+        - !Ref 'CloudwatchMetricsPolicy'
       Policies:
         - PolicyName: LambdaInvokePolicy
           PolicyDocument:
@@ -304,6 +341,7 @@ Resources:
         S3Key: !Ref ProcessSFNFunctionBucketKey
       Layers:
         - !Ref UtilsLayer
+        - !Ref ModelsLayer
       Handler: lambda.handler
       Role: !GetAtt ProcessSQSFunctionIAMRole.Arn
       Runtime: python3.11
@@ -315,6 +353,7 @@ Resources:
           ENVIRONMENT: !Ref Environment
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
+          DYNAMODB_FILES_TABLE_NAME: !Ref FilesDynamoDBTable 
           DYNAMODB_FILES_TABLE_ARN: !GetAtt FilesDynamoDBTable.Arn 
           PROCESSOR_LAMBDA_SQS_BATCH_SIZE: !Ref ProcessLambdaSQSBatchSize
           PROCESSOR_LAMBDA_TIMEOUT_SECS: !Ref ProcessLambdaTimeoutSecs
@@ -452,10 +491,10 @@ Resources:
         !Sub
           - |-
             {
-              "Comment": "Sample SQS Check and Process Workflow",
-              "StartAt": "CheckControlAndSQS",
+              "Comment": "Demo SQS Poll and Process Workflow",
+              "StartAt": "PollAndProcessSQS",
               "States": {
-                  "CheckControlAndSQS": {
+                  "PollAndProcessSQS": {
                       "Type": "Task",
                       "Resource": "${ControlFunction}",
                       "Parameters": {
@@ -468,8 +507,8 @@ Resources:
                                   "ProcessException"
                               ],
                               "IntervalSeconds": 10,
-                              "MaxAttempts": 6,
-                              "BackoffRate": 1.2
+                              "MaxAttempts": 30,
+                              "BackoffRate": 1.0
                           },
                           {
                               "ErrorEquals": [
@@ -480,43 +519,80 @@ Resources:
                               "BackoffRate": 1.2
                           }
                       ],
-                      "Next": "Success",
+                      "Next": "AllDone",
                       "Catch": [
                           {
                               "ErrorEquals": [
                                   "StillProcessingException"
                               ],
-                              "Next": "ProcessMessages"
+                              "Next": "WaitForProcessing"
                           },
                           {
                               "ErrorEquals": [
-                                  "AlreadyRunningException",
-                                  "ProcessException",
+                                  "ProcessException"
+                              ],
+                              "Next": "ProcessingException"
+                          },
+                          {
+                              "ErrorEquals": [
+                                  "KillSwitchException"
+                              ],
+                              "Next": "KillSwitchException"
+                          },
+                          {
+                              "ErrorEquals": [
                                   "CapacityException"
                               ],
-                              "Next": "Failed"
+                              "Next": "CapacityException"
+                          },
+                          {
+                              "ErrorEquals": [
+                                  "AlreadyRunningException"
+                              ],
+                              "Next": "ExistingSFNRunning"
                           },
                           {
                               "ErrorEquals": [
                                   "States.ALL"
                                ],
-                              "Next": "Failed"
+                              "Next": "Error"
                           }
                       ],
                       "TimeoutSeconds": 1800
                   },
-                  "ProcessMessages": {
+                  "WaitForProcessing": {
                       "Type": "Wait",
                       "Seconds": 30,
-                      "Next": "CheckControlAndSQS"
+                      "Next": "PollAndProcessSQS"
                   },
-                  "Failed": {
+                  "ProcessingException": {
+                    "Type": "Fail",
+                    "Comment": "ProcessingException Error occurred",
+                    "ErrorPath": "$.Error",
+                    "CausePath": "$.Cause"
+                  },
+                  "CapacityException": {
+                    "Type": "Fail",
+                    "Comment": "CapacityException Error occurred",
+                    "ErrorPath": "$.Error",
+                    "CausePath": "$.Cause"
+                  },
+                  "KillSwitchException": {
+                    "Type": "Fail",
+                    "Comment": "KillSwitchException Error occurred",
+                    "ErrorPath": "$.Error",
+                    "CausePath": "$.Cause"
+                  },
+                  "Error": {
                     "Type": "Fail",
                     "Comment": "Unexpected Error occurred",
                     "ErrorPath": "$.Error",
                     "CausePath": "$.Cause"
                   },
-                  "Success": {
+                  "ExistingSFNRunning": {
+                    "Type": "Succeed"
+                  },
+                  "AllDone": {
                     "Type": "Succeed"
                   }
               }

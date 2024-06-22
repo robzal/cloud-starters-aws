@@ -12,6 +12,8 @@ from time import sleep
 from logger import *
 from config import *
 
+from ProcessedFile import *
+
 logger = Logger().logger
 config = Config().config
 
@@ -60,19 +62,11 @@ def process_message():
                 records = json.loads(message['Body'])['Records']
                 # TODO - write data to DDB
                 logger.info('message file key')
-                logger.info(records[0]['s3']['object']['key'])
+                filename = records[0]['s3']['object']['key']
+                logger.info(filename)
 
-                response = ddb.put_item(
-                    TableName=config['dynamo_files_table_arn'] ,
-                    Item={
-                        'Id': {
-                            'S': records[0]['s3']['object']['key'],
-                        },
-                        'DateProcessed': {
-                            'S': str(datetime.now())
-                        }
-                    },
-                )
+                processed_file = ProcessedFile()
+                processed_file.add_update_item(filename)
 
                 sqs.delete_message(QueueUrl=config['sqs_queue_url'], ReceiptHandle=receipt_handle)
                 logger.info('message cleared')
