@@ -11,6 +11,7 @@ from time import sleep
 from datetime import timedelta
 import datetime
 import pytz
+import math
 
 from ProcessConfig import *
 
@@ -56,8 +57,10 @@ def read_env_config(event):
         config['processor_lambda_name'] = os.environ.get('PROCESSOR_LAMBDA_NAME', '')
         config['processor_lambda_arn'] = os.environ.get('PROCESSOR_LAMBDA_NAME', '')
         config['max_concurrent_processor_lambdas'] =  os.environ.get('PROCESSOR_LAMBDA_MAX_CONCURRENT', '10')
+        config['processor_sqs_batch_size'] =  os.environ.get('PROCESSOR_LAMBDA_SQS_BATCH_SIZE', '10')
         config['processor_concurrency_query_minutes'] =  os.environ.get('PROCESSOR_LAMBDA_EXECUTION_QUERY_MINS', '2')
         config['processor_stop'] =  os.environ.get('PROCESSOR_STOP', '0')
+        config['process_name'] =  os.environ.get('PROCESS_NAME', 'DemoQueue')
 
     except Exception as error:
         logger.info('Config Read error')
@@ -68,16 +71,21 @@ def read_db_config(event):
         logger.info("Reading db config data")
 
         process_config = ProcessConfig()
+        proc_name = config['process_name']
         try:
-            config['max_concurrent_processor_lambdas'] =  process_config.get_item('ParserQueue', 'max_concurrent_processor_lambdas').value
+            config['max_concurrent_processor_lambdas'] =  process_config.get_item(proc_name, 'max_concurrent_processor_lambdas').value
         except Exception:
             pass
         try:
-            config['processor_concurrency_query_minutes'] =  process_config.get_item('ParserQueue', 'processor_concurrency_query_minutes').value
+            config['processor_concurrency_query_minutes'] =  process_config.get_item(proc_name, 'processor_concurrency_query_minutes').value
         except Exception:
             pass
         try:
-            config['processor_stop'] =  process_config.get_item('ParserQueue', 'processor_stop').value
+            config['processor_stop'] =  process_config.get_item(proc_name, 'processor_stop').value
+        except Exception:
+            pass
+        try:
+            config['processor_sqs_batch_size'] =  process_config.get_item('ParserQueue', 'processor_sqs_batch_size').value
         except Exception:
             pass
 
@@ -121,10 +129,10 @@ def check_messages_exist():
     
     if 'Attributes' not in response or response['Attributes']['ApproximateNumberOfMessages'] == '0':
         logger.info('No current messages. Dont continue' )
-        return False
+        return 0
     else:
         logger.info('Messages in the queue. Good to keep going')
-        return True
+        return int(response['Attributes']['ApproximateNumberOfMessages'])
 
 def spare_lambda_capacity():
 
@@ -183,6 +191,11 @@ def spare_lambda_capacity():
     logger.info ("SQS Processor capacity available = {}".format(str(spare)))
     return spare
 
+def calc_needed_lambdas(msgs, spare, per_lambda ):
+
+    return min(math.ceil(msgs/per_lambda),spare)
+
+
 def start_processors(count):
     try:
         for p in range(0, count):
@@ -230,14 +243,17 @@ def handler(event, context):
         raise AlreadyRunningException()
        
     # read queue length for messages to process
-    if check_messages_exist():
+    msgs = check_messages_exist()
+    if msgs > 0:
             
         # check lambda capacity
         spare = spare_lambda_capacity()
+        per_lambda = int(config['processor_sqs_batch_size'])
         if spare > 0:
-            logger.info('start processors')
+            needed = calc_needed_lambdas(msgs, spare, per_lambda )
+            logger.info('starting {} processors'.format(needed))
             # run needed lambdas
-            if start_processors(spare):
+            if start_processors(needed):
                 raise StillProcessingException()
             else:
                 raise ProcessException() 

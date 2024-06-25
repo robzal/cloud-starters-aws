@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'This template deploys a number of AWS Serverless resources in std (non SAM) format'
 Parameters:
-  Environment:
-    Type: 'String'
-    Default: 'dev'
   AppCode:
     Type: 'String'
     Default: 'demo-serverless'
+  Environment:
+    Type: 'String'
+    Default: 'dev'
   LambdaBucket:
     Type: String
     Default: 238160719262-deployments
@@ -47,6 +47,9 @@ Parameters:
   ProcessLambdaTimeoutSecs:
     Type: String
     Default: "300"
+  QueueProcessName:
+    Type: String
+    Default: "DemoQueue"
   CreateAPIKey:
     Type: 'String'
     Default: 'false'
@@ -292,6 +295,8 @@ Resources:
           PROCESSOR_LAMBDA_ARN: !GetAtt ProcessSQSFunction.Arn
           PROCESSOR_LAMBDA_MAX_CONCURRENT: !Ref ProcessLambdaMaxConcurrent
           PROCESSOR_LAMBDA_EXECUTION_QUERY_MINS: !Ref ProcessLambdaExecutionQueryMins
+          PROCESSOR_LAMBDA_SQS_BATCH_SIZE:  !Ref ProcessLambdaSQSBatchSize
+          PROCESS_NAME: !Ref QueueProcessName
   ControlSFNFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

@@ -19,7 +19,7 @@ from config import *
 logger = Logger().logger
 config = Config().config
 
-os.environ['DYNAMODB_CONTROL_TABLE_NAME'] = 'serverless-demo-admin-Process-Control'
+# os.environ['DYNAMODB_CONTROL_TABLE_NAME'] = 'serverless-demo-admin-Process-Control'
 PROCESS_CONTROL_TABLE = os.environ['DYNAMODB_CONTROL_TABLE_NAME']
 
 class ProcessConfigDDB(Model):
@@ -83,13 +83,14 @@ class ProcessConfig(object):
             logger.info(str(error))
 
 if __name__ == '__main__':
-    process_config = ProcessConfig()
-    process_config.add_update_item('ParserQueue', 'max_concurrent_processor_lambdas', '1')
-    process_config.add_update_item('ParserQueue', 'processor_concurrency_query_minutes', '2')
-    process_config.add_update_item('ParserQueue', 'processor_stop', '0')
-    process_config.add_update_item('ParserQueue', 'processor_lambda_timeout_secs', '300')
-    process_config.add_update_item('ParserQueue', 'processor_lambda_sqs_batch_size', '10')
-    # process_config_metric = process_config.get_item('ParserQueue', 'max_concurrent_processor_lambdas')
+    # process_config = ProcessConfig()
+    # proc_name='DemoQueue'
+    # process_config.add_update_item(proc_name, 'max_concurrent_processor_lambdas', '1')
+    # process_config.add_update_item(proc_name, 'processor_concurrency_query_minutes', '2')
+    # process_config.add_update_item(proc_name, 'processor_stop', '0')
+    # process_config.add_update_item(proc_name, 'processor_lambda_timeout_secs', '300')
+    # process_config.add_update_item(proc_name, 'processor_lambda_sqs_batch_size', '10')
+    # process_config_metric = process_config.get_item(proc_name, 'max_concurrent_processor_lambdas')
     # logger.info(process_config_metric.value)
-    # process_config.delete_item('ParserQueue', 'max_concurrent_processor_lambdas')
+    # process_config.delete_item(proc_name, 'max_concurrent_processor_lambdas')
 
