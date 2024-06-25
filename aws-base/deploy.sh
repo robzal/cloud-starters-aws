@@ -19,8 +19,8 @@ deploy_stack $1 $AWS_PROFILE ${APP_CODE}-admin cfn/base-admin.yaml cfn/base-admi
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-audit cfn/base-audit.yaml cfn/base-audit.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-iam-ops cfn/base-IAM-ops-roles.yaml cfn/base-IAM-ops-roles.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-devops cfn/base-devops.yaml cfn/base-devops.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-VPC cfn/base-VPC.yaml cfn/base-VPC.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-r53-ssl cfn/base-r53-ssl.yaml cfn/base-r53-ssl.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-VPC cfn/base-VPC.yaml cfn/base-VPC.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-r53-ssl cfn/base-r53-ssl.yaml cfn/base-r53-ssl.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
 if [[ -z $SECONDARY_REGIONS ]]; then
@@ -34,7 +34,7 @@ else
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-audit cfn/base-audit.yaml cfn/base-audit.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-iam-ops cfn/base-IAM-ops-roles.yaml cfn/base-IAM-ops-roles.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-devops cfn/base-devops.yaml cfn/base-devops.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-        deploy_stack $r $AWS_PROFILE ${APP_CODE}-VPC cfn/base-VPC.yaml cfn/base-VPC.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-        deploy_stack $r $AWS_PROFILE ${APP_CODE}-r53-ssl cfn/base-r53-ssl.yaml cfn/base-r53-ssl.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+        deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-VPC cfn/base-VPC.yaml cfn/base-VPC.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+        deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-r53-ssl cfn/base-r53-ssl.yaml cfn/base-r53-ssl.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
     done
 fi

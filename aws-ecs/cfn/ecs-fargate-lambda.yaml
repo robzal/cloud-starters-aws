@@ -10,7 +10,7 @@ Parameters:
         Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
         Type: String
         Default: dev
-    ClusterName:
+    ECSClusterName:
         Description: Name for the ECS Cluster being created
         Type: String
         Default: ecs-demo-dev-Fargate-Cluster
@@ -301,7 +301,7 @@ Resources:
     ECSCluster:
         Type: AWS::ECS::Cluster
         Properties:
-            ClusterName: !Ref ClusterName
+            ClusterName: !Ref ECSClusterName
     TaskLogGroup:
         Type: 'AWS::Logs::LogGroup'
         Properties:
@@ -343,7 +343,7 @@ Resources:
         DependsOn: TaskDefinition
         Properties: 
             ServiceName: !Sub ${AppCode}-${Environment}-fargate-service
-            Cluster: !Ref ClusterName
+            Cluster: !Ref ECSClusterName
             LaunchType: FARGATE
             DesiredCount: !Ref ECSTaskCount
             TaskDefinition: !Ref TaskDefinition

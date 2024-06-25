@@ -15,7 +15,7 @@ set_aws_creds $1 $3 $4
 
 echo "Deploying Stacks into Primary Region."
 
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-cloudfront-s3 cfn/cloudfront-s3.yaml cfn/cloudfront-s3.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-cloudfront-s3 cfn/cloudfront-s3.yaml cfn/cloudfront-s3.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
 if [[ -z $SECONDARY_REGIONS ]]; then

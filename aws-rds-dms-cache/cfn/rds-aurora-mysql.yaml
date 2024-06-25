@@ -7,7 +7,7 @@ Parameters:
   AppCode:
       Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: demo-dbs
+      Default: demo-data
   Environment:
       Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
       Type: String
@@ -195,7 +195,7 @@ Resources:
     Type: AWS::RDS::DBCluster
     DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
     Properties:
-      DBClusterIdentifier: !Ref DBClusterIdentifier
+      DBClusterIdentifier: !Sub '${AppCode}-${Environment}-${DBClusterIdentifier}'
       DBSubnetGroupName: !Ref DBSubnetGroup
       VpcSecurityGroupIds:
         - !Ref DBInstanceSecurityGroup
@@ -212,13 +212,13 @@ Resources:
       BackupRetentionPeriod: !Ref BackupRetentionPeriod
       Tags:
       - Key: Name
-        Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}"
+        Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-${DBClusterIdentifier}"
   DBInstance1:
     Type: AWS::RDS::DBInstance
     DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
     Properties:
       DBClusterIdentifier: !Ref DBCluster
-      DBInstanceIdentifier: !Sub ${DBInstanceIdentifier}-1
+      DBInstanceIdentifier: !Sub '${AppCode}-${Environment}-${DBClusterIdentifier}-${DBInstanceIdentifier}-1'
       DBSubnetGroupName: !Ref DBSubnetGroup
       Engine: !Ref DBEngine
       EngineVersion: !Ref DBEngineVersion
@@ -235,7 +235,7 @@ Resources:
     DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
     Properties:
       DBClusterIdentifier: !Ref DBCluster
-      DBInstanceIdentifier: !Sub ${DBInstanceIdentifier}-2
+      DBInstanceIdentifier: !Sub '${AppCode}-${Environment}-${DBClusterIdentifier}-${DBInstanceIdentifier}-2'
       DBSubnetGroupName: !Ref DBSubnetGroup
       Engine: !Ref DBEngine
       EngineVersion: !Ref DBEngineVersion

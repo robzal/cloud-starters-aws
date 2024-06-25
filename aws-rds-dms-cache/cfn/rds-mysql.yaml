@@ -7,7 +7,7 @@ Parameters:
   AppCode:
       Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: demo-dbs
+      Default: demo-data
   Environment:
       Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
       Type: String
@@ -194,7 +194,7 @@ Resources:
       Engine: !Ref DBEngine
       EngineVersion: !Ref DBEngineVersion
       DBInstanceClass: !Ref DBInstanceClass
-      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBInstanceIdentifier: !Sub '${AppCode}-${Environment}-${DBInstanceIdentifier}'
       DBName: !Ref DBName
       Port: !Ref DBPort
       PubliclyAccessible: !Ref PubliclyAccessible

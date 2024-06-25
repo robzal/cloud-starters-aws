@@ -378,7 +378,7 @@ Resources:
                     Options:
                         awslogs-group: !Sub '/ecs/${AppCode}-${Environment}-windows-container'
                         awslogs-region: !Ref AWS::Region
-                        awslogs-stream-prefix: "log"  
+                        # awslogs-stream-prefix: "log"  
     Service: 
         Type: AWS::ECS::Service
         DependsOn: TaskDefinition

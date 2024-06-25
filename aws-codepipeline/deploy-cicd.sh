@@ -28,5 +28,5 @@ if [[ ${AWS_ACCOUNT_ID} == ${DEVOPS_ACCOUNT} ]]; then
 	# aws s3 cp ./cicd/codepipeline.rules s3://${PIPELINE_EVENTS_BUCKET}/rules/${CODE_COMMIT_REPONAME}.rules --profile ${AWS_PROFILE}
 fi
 # Deployment Role deployed to primary region in any chosen account
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-deployment-role cicd/pipeline-role.yaml cicd/pipeline-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-deployment-role cicd/pipeline-role.yaml cicd/pipeline-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 

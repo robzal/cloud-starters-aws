@@ -24,4 +24,5 @@ VPCCIDRBlock=${VPC_CIDR}
 AdminIPAddressCIDR=${ADMIN_IP_CIDR}
 InstanceSubnet1=${DB_SUBNET1}
 InstanceSubnet2=${DB_SUBNET2}
+CreateBaseIAMRoleNames=${DMS_CREATE_BASE_ROLENAMES}
 PrimaryRegion=${PRIMARY_REGION}

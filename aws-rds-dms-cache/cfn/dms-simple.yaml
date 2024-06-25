@@ -7,7 +7,7 @@ Parameters:
   AppCode:
       Description: Short Name for the Application being deployed in this template, to be used in resource and stack names
       Type: String
-      Default: demo-databases
+      Default: demo-data
   Environment:
       Description: Short Name for the Environment being deployed in this template, to be used in resource and stack names
       Type: String
@@ -155,6 +155,14 @@ Parameters:
     Default: password
     NoEcho: true
 
+  CreateBaseIAMRoleNames:
+    Description: Whether to create base DMS IAM roles wth standard names. These base names can only be created once per account.
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "true"
+
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources
     Type: String
@@ -164,12 +172,15 @@ Conditions:
   IsPrimaryRegion: !Equals 
     - !Ref PrimaryRegion
     - !Ref AWS::Region
+  CreateDMSBaseRoleNames: !Equals 
+    - !Ref CreateBaseIAMRoleNames
+    - "true"
 
 Resources:
   DMSVPCRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: 'dms-vpc-role'
+      RoleName: !If [CreateDMSBaseRoleNames, 'dms-vpc-role', !Sub '${AppCode}-${Environment}-dms-vpc-role']
       ManagedPolicyArns: 
         - 'arn:aws:iam::aws:policy/service-role/AmazonDMSVPCManagementRole'
       AssumeRolePolicyDocument:
@@ -181,7 +192,7 @@ Resources:
   DMSCloudwatchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: 'dms-cloudwatch-logs-role'
+      RoleName: !If [CreateDMSBaseRoleNames, 'dms-cloudwatch-logs-role', !Sub '${AppCode}-${Environment}-dms-cloudwatch-logs-role']
       ManagedPolicyArns: 
         - 'arn:aws:iam::aws:policy/service-role/AmazonDMSCloudWatchLogsRole'
       AssumeRolePolicyDocument:
@@ -195,19 +206,19 @@ Resources:
     Type: AWS::DMS::ReplicationSubnetGroup
     DependsOn: DMSVPCRole
     Properties:
-      ReplicationSubnetGroupIdentifier: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-subnetgroup
+      ReplicationSubnetGroupIdentifier: !Sub ${AppCode}-${Environment}-${DmsInstanceIdentifier}-subnetgroup
       ReplicationSubnetGroupDescription: DMS subnet group
       SubnetIds:
         - !Ref InstanceSubnet1
         - !Ref InstanceSubnet2
       Tags:
       - Key: Name
-        Value: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-subnetgroup
+        Value: !Sub ${AppCode}-${Environment}-${DmsInstanceIdentifier}-subnetgroup
   DMSInstanceSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     DependsOn: DMSVPCRole
     Properties:
-        GroupName: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-SG'
+        GroupName: !Sub '${AppCode}-${Environment}-${DmsInstanceIdentifier}-SG'
         GroupDescription: Enable DMS replication and service traffic
         VpcId: !Ref VPCID
         # only need egress unless deepdiving DMS instance logs or daemons. Thats very advanced stuff.
@@ -216,18 +227,18 @@ Resources:
               CidrIp: 0.0.0.0/0
         Tags:
         - Key: Name
-          Value: !Sub ${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-SG
+          Value: !Sub ${AppCode}-${Environment}-${DmsInstanceIdentifier}-SG
 
   DMSInstanceLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}'
+      LogGroupName: !Sub 'dms-tasks-${AppCode}-${Environment}-${DmsInstanceIdentifier}'
       RetentionInDays: 14
   DMSInstance:
     Type: AWS::DMS::ReplicationInstance
     DependsOn: [DMSInstanceLogGroup, DMSSubnetGroup, DMSInstanceSecurityGroup]
     Properties:
-      ReplicationInstanceIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}'
+      ReplicationInstanceIdentifier: !Sub '${AppCode}-${Environment}-${DmsInstanceIdentifier}'
       EngineVersion: !Ref DmsEngineVersion
       MultiAZ: false
       PubliclyAccessible: false
@@ -239,7 +250,7 @@ Resources:
   SourceEndpoint:
     Type: AWS::DMS::Endpoint
     Properties:
-      EndpointIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-source-endpoint'
+      EndpointIdentifier: !Sub '${AppCode}-${Environment}-${DmsInstanceIdentifier}-source-endpoint'
       EndpointType: source
       DatabaseName: !Ref SourceDBName
       EngineName: !Ref SourceEngine
@@ -251,7 +262,7 @@ Resources:
   TargetEndpoint:
     Type: AWS::DMS::Endpoint
     Properties:
-      EndpointIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-target-endpoint'
+      EndpointIdentifier: !Sub '${AppCode}-${Environment}-${DmsInstanceIdentifier}-target-endpoint'
       EndpointType: target
       DatabaseName: !Ref TargetDBName
       EngineName: !Ref TargetEngine
@@ -263,7 +274,7 @@ Resources:
   ReplicationTask:
     Type: 'AWS::DMS::ReplicationTask'
     Properties:
-      ReplicationTaskIdentifier: !Sub '${AppCode}-${Environment}-dms-${DmsInstanceIdentifier}-migration-task'
+      ReplicationTaskIdentifier: !Sub '${AppCode}-${Environment}-${DmsInstanceIdentifier}-migration-task'
       MigrationType: full-load
       ReplicationInstanceArn: !Ref DMSInstance
       SourceEndpointArn: !Ref SourceEndpoint

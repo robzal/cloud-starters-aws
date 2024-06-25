@@ -15,8 +15,8 @@ set_aws_creds $1 $3 $4
 
 echo "Deploying Stacks into Primary Region."
 
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-linux-image cfn/ec2-image-builder-linux.yaml cfn/ec2-image-builder-linux.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-windows-image cfn/ec2-image-builder-windows.yaml cfn/ec2-image-builder-windows.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-linux-image cfn/ec2-image-builder-linux.yaml cfn/ec2-image-builder-linux.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-windows-image cfn/ec2-image-builder-windows.yaml cfn/ec2-image-builder-windows.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
 if [[ -z $SECONDARY_REGIONS ]]; then

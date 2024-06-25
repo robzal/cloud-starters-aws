@@ -89,10 +89,6 @@ Outputs:
   R53Domain:
     Condition: ShouldCreateR53Zone
     Value: !Ref R53Domain
-    Export:
-      Name: !Sub 'R53Domain'
   SSLCertificate:
     Condition: ShouldCreateSSLCert
     Value: !Ref SSLCertificate
-    Export:
-      Name: !Sub 'SSLCertificate'

@@ -344,7 +344,7 @@ Resources:
   EKSClusterLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
-          LogGroupName: !Sub '/aws/eks/eks-demo-admin-Cluster/cluster'
+          LogGroupName: !Sub '/aws/eks/${EKSClusterName}/cluster'
           RetentionInDays: 14
   EKSCluster:
     Type: AWS::EKS::Cluster

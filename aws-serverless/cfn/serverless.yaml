@@ -6,7 +6,7 @@ Parameters:
     Default: 'dev'
   AppCode:
     Type: 'String'
-    Default: 'cnp'
+    Default: 'demo-serverless'
   LambdaBucket:
     Type: String
     Default: 238160719262-deployments
@@ -758,8 +758,8 @@ Resources:
     DependsOn: FileAPIUsagePlan
     Properties:
       Enabled: true
-      Name: API Key for Lambda Demo FileAPI
-      Value: !Ref APIKeyValue
+      Name: !Sub '${AppCode}-${Environment}-FileAPI-Key'
+      # Value: !Ref APIKeyValue
       # StageKeys:
       # - RestApiId:
       #     Ref: FileAPIRestApi
