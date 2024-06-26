@@ -51,10 +51,7 @@ Parameters:
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources. CloudFront / WAF stacks must be deployed to us-east-1 only
     Type: String
-    Default: "us-east-1"
-    AllowedValues: 
-      - "us-east-1"
-      - "ap-southeast-2"
+    Default: "ap-southeast-2"
 
 Conditions:
   IsPrimaryRegion: !Equals 
@@ -70,8 +67,11 @@ Conditions:
   EnableLogging: !Equals 
     - !Ref EnableLogging
     - "true"
-  IsPrimaryAndCreateWAF: !And 
-    - !Condition IsPrimaryRegion
+  IsWAFRegion: !Equals 
+    - "us-east-1"
+    - !Ref AWS::Region
+  IsWAFRegionAndCreateWAF: !And 
+    - !Condition IsWAFRegion
     - !Condition CreateWAF
   IsPrimaryAndUseCustomDomain: !And 
     - !Condition IsPrimaryRegion
@@ -83,7 +83,7 @@ Conditions:
 Resources:
   WAFWebACL:
     Type: AWS::WAFv2::WebACL
-    Condition: IsPrimaryAndCreateWAF
+    Condition: IsWAFRegionAndCreateWAF
     Properties:
       Name: !Sub ${AppCode}-${Environment}-CDN-WAF
       Scope: CLOUDFRONT
@@ -140,12 +140,12 @@ Resources:
     Condition: IsPrimaryRegion
     Properties:
       DistributionConfig:
-        Comment: Cloudfront Distribution fronting APIGW
+        Comment: !Sub ${AppCode}-${Environment} Cloudfront Distribution
         Enabled: true
         HttpVersion: 'http2'
         WebACLId: 
           !If
-            - IsPrimaryAndCreateWAF
+            - IsWAFRegionAndCreateWAF
             - !GetAtt WAFWebACL.Arn
             - !Ref "AWS::NoValue"
         DefaultCacheBehavior:
@@ -304,7 +304,7 @@ Resources:
     Type: 'AWS::Logs::LogGroup'
     Condition: IsPrimaryRegion
     Properties:
-      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${AppCode}-${Environment}-APIGW-Demo'
+      LogGroupName: !Sub 'API-Gateway-Execution-Logs_${APIGWRestApi}/v1'
       RetentionInDays: 14
 
   APIGWRestApi:
@@ -393,8 +393,8 @@ Resources:
     DependsOn: APIGWUsagePlan
     Properties:
       Enabled: true
-      Name: API Key for Lambda Demo APIGW
-      Value: !Ref APIKeyValue
+      Name:  !Sub '${AppCode}-${Environment}-CF-APIGW-Key'
+      # Value: !Ref APIKeyValue
       # StageKeys:
       # - RestApiId:
       #     Ref: APIGWRestApi
@@ -432,7 +432,7 @@ Outputs:
     Export:
       Name: !Sub "${AppCode}-${Environment}-cdn-url"
   CloudFrontWAF:
-    Condition: IsPrimaryAndCreateWAF
+    Condition: IsWAFRegionAndCreateWAF
     Value: !Ref WAFWebACL
     Export:
       Name: !Sub "${AppCode}-${Environment}-cdn-waf"

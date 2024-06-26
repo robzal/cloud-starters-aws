@@ -134,8 +134,14 @@ Resources:
             }
           ]
         }
+  DemoApiLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Demo-API-Function'
+      RetentionInDays: 14
   DemoApiLambdaFunction:
     Type: 'AWS::Lambda::Function'
+    DependsOn: DemoApiLambdaLogGroup
     Properties:
       FunctionName: !Sub ${AppCode}-${Environment}-Demo-API-Function
       Runtime: "python3.11"
@@ -198,7 +204,7 @@ Resources:
     Properties:
       Roles:
         - !Ref ApiAuthorizerIAMRole
-      PolicyName: ApiAuthorizerLambdaIAMPolicy
+      PolicyName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-Lambda-IAMPolicy"
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -206,16 +212,10 @@ Resources:
             Action:
               - cognito-idp:*
             Resource: !GetAtt CognitoUserPool.Arn
-          - Effect: Allow
-            Action:
-              - logs:CreateLogGroup
-              - logs:CreateLogStream
-              - logs:PutLogEvents
-            Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/ApiAuthorizerLambdaFunction:*
   ApiAuthorizerLambdaIAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: ApiAuthorizerLambdaIAMRole
+      RoleName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-Lambda-IAMRole"
       AssumeRolePolicyDocument: |-
         {
           "Version": "2012-10-17",
@@ -230,10 +230,18 @@ Resources:
             }
           ]
         }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  ApiAuthorizerLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-ApiAuthorizer-Lambda'
+      RetentionInDays: 14
   ApiAuthorizerLambdaFunction:
     Type: 'AWS::Lambda::Function'
+    DependsOn: ApiAuthorizerLambdaLogGroup
     Properties:
-      FunctionName: ApiAuthorizerLambdaFunction
+      FunctionName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-Lambda"
       Runtime: "python3.11"
       Handler: "lambda.handler"
       Role: !GetAtt ApiAuthorizerLambdaIAMRole.Arn
@@ -248,7 +256,7 @@ Resources:
   ApiAuthorizerIAMPolicy:
     Type: 'AWS::IAM::Policy'
     Properties:
-      PolicyName: ApiAuthorizerIAMPolicy
+      PolicyName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-IAMPolicy"
       Roles:
         - !Ref ApiAuthorizerIAMRole
       PolicyDocument:
@@ -261,7 +269,7 @@ Resources:
   ApiAuthorizerIAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: ApiAuthorizerIAMRole
+      RoleName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-IAMRole"
       AssumeRolePolicyDocument: |-
         {
           "Version": "2012-10-17",
@@ -279,7 +287,7 @@ Resources:
   ApiGatewayAuthorizer:
     Type: 'AWS::ApiGateway::Authorizer'
     Properties:
-      Name: custom-auth
+      Name: !Sub "${AppCode}-${Environment}-ApiAuthorizer"
       RestApiId: !Ref ApiGatewayRestApi
       Type: REQUEST
       IdentitySource: method.request.header.Authorization
@@ -299,7 +307,7 @@ Resources:
               Service:
                 - apigateway.amazonaws.com
             Action: 'sts:AssumeRole'
-      RoleName: !Sub "ApiGW-Logging-Role"
+      RoleName: !Sub "${AppCode}-${Environment}-ApiGW-Logging-Role"
       Path: /
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonApiGatewayPushToCloudWatchLogs

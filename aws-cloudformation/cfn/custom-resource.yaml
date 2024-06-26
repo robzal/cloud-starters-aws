@@ -56,7 +56,7 @@ Resources:
                 - lambda.amazonaws.com
             Action:
               - "sts:AssumeRole"
-      RoleName: !Sub "${AppCode}-${Environment}-Lambda-Role"
+      RoleName: !Sub "${AppCode}-${Environment}-FileDownloader-Function-Role"
       ManagedPolicyArns:
         - !Sub "arn:aws:iam::aws:policy/AmazonS3FullAccess"
         - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -68,6 +68,7 @@ Resources:
       RetentionInDays: 14
   FileDownloaderFunction:
     Type: AWS::Lambda::Function 
+    DependsOn: FileDownloaderFunctionLogGroup
     Properties:
       Code:
         S3Bucket: !Ref FileDownloadBucket

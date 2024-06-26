@@ -16,7 +16,7 @@ set_aws_creds $1 $3 $4
 
 echo "Deploying Stacks into Primary Region."
 
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-cloudfront-apigw cfn/cloudfront-apigw.yaml cfn/cloudfront-apigw.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-solution cfn/cloudfront-apigw.yaml cfn/cloudfront-apigw.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
 if [[ -z $SECONDARY_REGIONS ]]; then
@@ -26,6 +26,6 @@ else
     for r in ${SECONDARY_REGIONS//,/ }
     do
         load_env $r $1
-        deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-cloudfront-apigw cfn/cloudfront-apigw.yaml cfn/cloudfront-apigw.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+        deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-solution cfn/cloudfront-apigw.yaml cfn/cloudfront-apigw.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
     done
 fi
