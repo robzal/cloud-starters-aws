@@ -1,1 +1,0 @@
-An few EC2 solutions to get you going, in single instance and scaling configurations

@@ -12,11 +12,7 @@ set -e
 load_env $1 $2
 set_aws_creds $1 $3 $4
 
-echo "Deploying Stacks into Primary Region."
+echo "Deploying Pipeline Stack into Primary Region."
 
-# Pipeline itself deployed to primary region in DevOps account only
-if [[ ${AWS_ACCOUNT_ID} == ${DEVOPS_ACCOUNT} ]]; then 
-    deploy_stack $1 $AWS_PROFILE ${APP_CODE}-pipeline cicd/pipeline.yaml cicd/pipeline.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-fi
-# Deployment Role deployed to primary region in any chosen account
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-deployment-role cicd/pipeline-role.yaml cicd/pipeline-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-pipeline cicd/pipeline.yaml cicd/pipeline.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+

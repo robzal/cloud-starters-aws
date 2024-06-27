@@ -101,9 +101,9 @@ build_lambdas () {
         rm -rf $B_DIR/$d/*
         pip3 install -t $B_DIR/$d -r $F_DIR/$d/requirements.txt
         cp $F_DIR/$d/*.py $B_DIR/$d
-        if [ -f $P_DIR/lambdas/$d-$VERSION.zip ] 
+        if [ -f $P_DIR/lambdas/$d-*.zip ] 
         then
-            rm $P_DIR/lambdas/$d-$VERSION.zip;
+            rm $P_DIR/lambdas/$d-*.zip;
         fi
         pushd $B_DIR/$d
         zip -r ../../$P_DIR/lambdas/$d-$VERSION.zip *
@@ -137,9 +137,9 @@ build_layers () {
         rm -rf $B_DIR/$d/*
         mkdir $B_DIR/$d/python
         cp $F_DIR/$d/python/*.py $B_DIR/$d/python
-        if [ -f $P_DIR/layers/$d-$VERSION.zip ] 
+        if [ -f $P_DIR/layers/$d-*.zip ] 
         then
-            rm $P_DIR/layers/$d-$VERSION.zip;
+            rm $P_DIR/layers/$d-*.zip;
         fi
         pushd $B_DIR/$d
         zip -r ../../$P_DIR/layers/$d-$VERSION.zip *

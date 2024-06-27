@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates build and deployment roles for app pipelines
+Parameters:
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  Environment:
+    Type: 'String'
+    Default: 'dev'
+  CodePipelineCode:
+    Type: 'String'
+    Default: 'multienv'
+  DevOpsAccountID:
+    Description: AWS AccountNumber for DevOps account
+    Type: String
+    Default: 238160719262
+  DeploymentRoleSuffix:
+      Type: String
+      Default: Deployment-Role
+      Description: Suffix for IAM Deployment role being created
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: ap-southeast-2
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+
+Resources:
+  DeploymentPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsPrimaryRegion
+    Properties: 
+      Description: Deployment Role Access"
+      Path: "/"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - '*'
+            Resource: '*'
+      ManagedPolicyName: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-Deployment-Policy'
+  DeploymentRole:
+    Type: 'AWS::IAM::Role'
+    Condition: IsPrimaryRegion
+    Properties:
+      RoleName: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-${DeploymentRoleSuffix}'
+      ManagedPolicyArns: 
+        - !Ref DeploymentPolicy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${DevOpsAccountID}:role/${AppCode}-${CodePipelineCode}-CodePipeline-Role
+            Action: 'sts:AssumeRole'
+
+Outputs:
+  DeploymentRole:
+    Condition: IsPrimaryRegion
+    Value: !Ref DeploymentRole
+    Export:
+      Name: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-${DeploymentRoleSuffix}'
