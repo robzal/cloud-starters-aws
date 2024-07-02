@@ -21,25 +21,41 @@ Parameters:
     Description: IAM Pipeline Deployment Roles for KMS access
     Type: CommaDelimitedList
     Default: "arn:aws:iam::238160719262:role/*-CodePipeline-Role"
+  LoggingBucketName:
+    Description: Name of S3 Bucket used for Access Logs.
+    Type: String
+    Default: "238160719262-logging"
+  PipelineBucketName:
+    Description: Name of S3 Bucket used for Code Pipeline artifacts.
+    Type: String
+    Default: "238160719262-codepipeline"
+  BuildBucketName:
+    Description: Name of S3 Bucket used for Build Output.
+    Type: String
+    Default: "238160719262-builds"
+  EnableDevOps:
+    Description: Bool value whether to create the resources (these incur KMS costs). Only required if using CodePipelines.
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources
     Type: String
     Default: ap-southeast-2
 Conditions:
-  IsDevOpsAccount: !Equals 
-    - !Ref DevOpsAccountID
-    - !Ref AWS::AccountId
   IsPrimaryRegion: !Equals 
     - !Ref PrimaryRegion
     - !Ref AWS::Region
-  IsPrimaryAndDevOpsAccount: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition IsDevOpsAccount
+  DeployDevOps: !Equals 
+    - !Ref EnableDevOps
+    - "true"
 
 Resources:
   PipelineKMSKey:
     Type: AWS::KMS::Key
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Properties:
       Description: Used by Pipeline Role and Resource Deployment Roles for Pipeline Artifacts
       EnableKeyRotation: false
@@ -96,21 +112,24 @@ Resources:
               - kms:DescribeKey
             Resource: "*"
   PipelineKMSKeyAlias:
-    Condition: IsPrimaryAndDevOpsAccount
     Type: AWS::KMS::Alias
+    Condition: DeployDevOps
     Properties:
       AliasName: !Ref PipelineBucketKMSKeyAlias
       TargetKeyId: !Ref PipelineKMSKey
   PipelineBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-codepipeline'
+      BucketName: !Ref PipelineBucketName
       BucketEncryption:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: aws:kms
               KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${PipelineBucketName}/
       LifecycleConfiguration:
         Rules:
           - Id: PipelineRule
@@ -118,7 +137,7 @@ Resources:
             ExpirationInDays: 7
   PipelineBucketPolicy: 
     Type: AWS::S3::BucketPolicy
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Properties: 
       Bucket: !Ref PipelineBucket
       PolicyDocument: 
@@ -146,17 +165,20 @@ Resources:
               AWS: !Ref DeploymentAccountIds
   BuildBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-builds'
+      BucketName: !Ref BuildBucketName
       BucketEncryption:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: aws:kms
               KMSMasterKeyID: !Sub '${PipelineKMSKey}'
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${BuildBucketName}/
   BuildBucketPolicy: 
     Type: AWS::S3::BucketPolicy
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Properties: 
       Bucket: !Ref BuildBucket
       PolicyDocument: 
@@ -184,12 +206,12 @@ Resources:
               AWS: !Ref DeploymentAccountIds
 Outputs:
   PipelineBucket:
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Value: !Ref PipelineBucket
     Export:
-      Name: !Sub 'PipelineBucket'
+      Name: !Sub 'PipelineBucketName'
   BuildBucket:
-    Condition: IsPrimaryAndDevOpsAccount
+    Condition: DeployDevOps
     Value: !Ref BuildBucket
     Export:
-      Name: !Sub 'BuildBucket'
+      Name: !Sub 'BuildBucketName'

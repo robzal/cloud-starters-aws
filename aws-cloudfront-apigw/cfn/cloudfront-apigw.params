@@ -5,5 +5,5 @@ CustomDomain=${CDN_CUSTOM_DOMAIN}
 DomainCertificateArn=${CDN_CUSTOM_DOMAIN_ACM_ARN}
 CDNPriceClass=${CDN_PRICE_CLASS}
 EnableLogging=${CDN_ENABLE_LOGGING}
-LoggingBucketName=${CDN_LOGGING_BUCKET}
+LoggingBucketName=${LOGGING_BUCKET}
 PrimaryRegion=${PRIMARY_REGION}

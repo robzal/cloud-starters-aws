@@ -56,7 +56,7 @@ Resources:
                 - lambda.amazonaws.com
             Action:
               - "sts:AssumeRole"
-      RoleName: !Sub "${AppCode}-${Environment}-FileDownloader-Function-Role"
+      RoleName: !Sub "${AppCode}-${Environment}-FileDownloader-Role-${AWS::Region}"
       ManagedPolicyArns:
         - !Sub "arn:aws:iam::aws:policy/AmazonS3FullAccess"
         - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"

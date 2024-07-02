@@ -30,6 +30,18 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
+  LoggingBucketName:
+    Description: Name of S3 Bucket used for Access Logs.
+    Type: String
+    Default: "238160719262-logging-us-east-1"
+  CloudtrailBucketName:
+    Description: Name of S3 Bucket used for Cloudtrail Logs.
+    Type: String
+    Default: "238160719262-cloudtrail"
+  ConfigBucketName:
+    Description: Name of S3 Bucket used for AWS Config Logs.
+    Type: String
+    Default: "238160719262-awsconfig"
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources
     Type: String
@@ -58,22 +70,22 @@ Conditions:
   IsPrimaryAndUseKMS: !And 
     - !Condition IsPrimaryRegion
     - !Condition UseCMKKMS
-  IsPrimaryAndEnableCloudtrail: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition ShouldEnableCloudtrail
-  IsPrimaryAndEnableConfig: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition ShouldEnableConfig
-  IsPrimaryAndEnableGuardDuty: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition ShouldEnableGuardDuty
+  # IsPrimaryAndEnableCloudtrail: !And 
+  #   - !Condition IsPrimaryRegion
+  #   - !Condition ShouldEnableCloudtrail
+  # IsPrimaryAndEnableConfig: !And 
+  #   - !Condition IsPrimaryRegion
+  #   - !Condition ShouldEnableConfig
+  # IsPrimaryAndEnableGuardDuty: !And 
+  #   - !Condition IsPrimaryRegion
+  #   - !Condition ShouldEnableGuardDuty
 
 Resources:
 
   # audit KMS
   AuditKMSKey:
     Type: AWS::KMS::Key
-    Condition: IsPrimaryAndUseKMS
+    Condition: UseCMKKMS
     Properties:
       Description: Used by Assumed Roles in Dev/Prod accounts to Encrypt/Decrypt code
       EnableKeyRotation: true
@@ -115,7 +127,7 @@ Resources:
             Resource: "*"
   AuditKMSKeyAlias:
     Type: AWS::KMS::Alias
-    Condition: IsPrimaryAndUseKMS
+    Condition: UseCMKKMS
     Properties:
       AliasName: !Sub alias/audit-bucket-key
       TargetKeyId: !Ref AuditKMSKey
@@ -123,9 +135,8 @@ Resources:
   # S3 buckets for auditing
   CloudtrailBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryRegion
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-cloudtrail'
+      BucketName: !Ref CloudtrailBucketName
       BucketEncryption:
         !If
         - UseCMKKMS
@@ -136,8 +147,8 @@ Resources:
               SSEAlgorithm: 'aws:kms'
         - !Ref "AWS::NoValue"
       LoggingConfiguration:
-        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/cloudtrail
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${CloudtrailBucketName}/
       LifecycleConfiguration:
         Rules:
           - Id: PipelineRule
@@ -145,7 +156,6 @@ Resources:
             ExpirationInDays: 30
   CloudTrailBucketPolicy:
     Type: "AWS::S3::BucketPolicy"
-    Condition: IsPrimaryRegion
     Properties:
       Bucket: !Ref CloudtrailBucket
       PolicyDocument:
@@ -163,9 +173,8 @@ Resources:
           Resource: !Sub "arn:aws:s3:::${CloudtrailBucket}/AWSLogs/${AWS::AccountId}/*"
   ConfigBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryRegion
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-awsconfig'
+      BucketName: !Ref ConfigBucketName
       BucketEncryption:
         !If
         - UseCMKKMS
@@ -176,8 +185,8 @@ Resources:
               SSEAlgorithm: 'aws:kms'
         - !Ref "AWS::NoValue"
       LoggingConfiguration:
-        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/config
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${ConfigBucketName}/
       LifecycleConfiguration:
         Rules:
           - Id: PipelineRule
@@ -185,9 +194,8 @@ Resources:
             ExpirationInDays: 30
   ConfigBucketPolicy:
     Type: "AWS::S3::BucketPolicy"
-    Condition: IsPrimaryRegion
     Properties:
-      Bucket: !Sub '${AWS::AccountId}-awsconfig'
+      Bucket: !Ref ConfigBucket
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -205,7 +213,6 @@ Resources:
   # Enable CloudTrail
   CloudTrailIamRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsPrimaryRegion
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -249,7 +256,6 @@ Resources:
   # Enable AWS Config
   ConfigIamRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsPrimaryRegion
     Properties:
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AWS_ConfigRole'

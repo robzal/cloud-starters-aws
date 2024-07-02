@@ -294,6 +294,31 @@ upload_docker () {
     done
 }
 
+create_init_bucket () {
+
+        echo Make sure the Init Cloudformation bucket is there. If not create it...
+        set +e        
+        output=$(aws s3api head-bucket --bucket $3 --region $1 --profile $2  2>&1)
+        if [ $? -ne 0 ]; then
+            if echo ${output} | grep -q  "Not Found"; then
+                echo -e "$3 Bucket doesn't exist"
+                echo -e "Creating $3 Bucket via Cloudformation Stack now"
+                set -e
+                aws cloudformation deploy \
+                    --template-file ./cicd/s3-bucket.yaml \
+                    --stack-name cfn-init-$3 \
+                    --parameter-overrides BucketName=$3 \
+                    --region $1 \
+                    --profile $2
+            else
+                >&2 echo ${output}
+                exit
+            fi
+        else
+            echo -e "$3 Bucket exists"
+        fi
+}
+
 deploy_stack () {
 
 	cat $5 | sed 's/\r//g' | sed 's/\n//g' > .params.tmp

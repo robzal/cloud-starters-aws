@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Creates a VPC with optional NAT Gateway, VPC Peering"
+Description: "Creates a VPC with optional NAT Gateway, VPC Peering. The Network account should only have the master VPC, no
+other peering VPCs. Otherwise this logic will need to be expanded."
 Parameters:
   VPCName:
     Description: The name of the VPC being created.
@@ -14,11 +15,20 @@ Parameters:
     Type: String
     Default: false
     AllowedValues: [true, false]
-  CreateVPCPeering:
-    Description: Create VPC Peering Resources, IAM Role or VPC Connection.
+  CreateVPCPeeringRole:
+    Description: Create VPC Peering IAM Role, which accepts connections. SHould only be in the Primary region in the Network Account.
     Type: String
     Default: false
     AllowedValues: [true, false]
+  CreateVPCPeeringConnection:
+    Description: Create VPC Peering Connection. Requires a number of other Peering Connectnoi Parameters.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  LoggingBucketName:
+    Description: Name of S3 Bucket used for Flow Logs.
+    Type: String
+    Default: "238160719262-logging"
   NetworkAccountId:
     Description: AccountId of the Peering Hub Account.
     Type: String
@@ -47,27 +57,12 @@ Conditions:
   IsPrimaryRegion: !Equals 
     - !Ref PrimaryRegion
     - !Ref AWS::Region
-  IsNetworkAccount: !Equals 
-    - !Ref NetworkAccountId
-    - !Ref AWS::AccountId
-  IsNotNetworkAccount: !Not 
-    - !Equals 
-        - !Ref NetworkAccountId
-        - !Ref AWS::AccountId
   ShouldCreateNATGW:
     !Equals [true, !Ref CreateNATGW]
-  ShouldCreatePeering:
-    !Equals [true, !Ref CreateVPCPeering]
-  ShouldCreatePeeringRole: !And 
-    - !Condition IsPrimaryRegion
-    - !And
-      - !Condition ShouldCreatePeering
-      - !Condition IsNetworkAccount
-  ShouldCreatePeeringConnection: !And 
-    - !Condition IsPrimaryRegion
-    - !And
-      - !Condition ShouldCreatePeering
-      - !Condition IsNotNetworkAccount
+  ShouldCreatePeeringRole:
+    !Equals [true, !Ref CreateVPCPeeringRole]
+  ShouldCreatePeeringConnection:
+    !Equals [true, !Ref CreateVPCPeeringConnection]
 
 Resources:
   VPC:
@@ -83,7 +78,7 @@ Resources:
   VPCFlowLog:
     Type: AWS::EC2::FlowLog
     Properties:
-      LogDestination: !Sub 'arn:aws:s3:::${AWS::AccountId}-logging'
+      LogDestination: !Sub 'arn:aws:s3:::${LoggingBucketName}/VPCFlowLogs/${VPCName}'
       LogDestinationType: s3
       ResourceId: !Ref VPC
       ResourceType: VPC

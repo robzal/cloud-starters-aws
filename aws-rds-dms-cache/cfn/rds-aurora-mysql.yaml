@@ -110,7 +110,7 @@ Parameters:
   VPCID:
       Description: VPCID to deploy this infrastructure into
       Type: String
-      Default: vpc-02dee7d733d73e02c
+      Default: vpc-021729ddaa66979e8
   VPCCIDRBlock:
       Description: CIDR Block for VPC, for use in security group rules
       Type: String

@@ -24,7 +24,8 @@ else
     echo "Deploying Stacks into Secondary Regions."
     for r in ${SECONDARY_REGIONS//,/ }
     do
-        load_env $r $1
+        echo "Deploying Stacks into $r."
+        load_env $r $2
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-cognito-custom-auth cfn/cognito-apigw.yaml cfn/cognito-apigw.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
     done
 fi

@@ -1,0 +1,17 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a single ECR repo with trust policy
+Parameters:
+  BucketName:
+      Description: Name for the Bucket
+      Type: String
+      Default: my-bucket
+Resources:
+  CloudformationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      LifecycleConfiguration:
+        Rules:
+          - Id: PipelineRule
+            Status: Enabled
+            ExpirationInDays: 7

@@ -73,12 +73,6 @@ Conditions:
   IsWAFRegionAndCreateWAF: !And 
     - !Condition IsWAFRegion
     - !Condition CreateWAF
-  IsPrimaryAndUseCustomDomain: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition UseCustomDomain
-  IsPrimaryAndEnableLogging: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition EnableLogging
 
 Resources:
   CDNContentBucket:
@@ -218,13 +212,13 @@ Resources:
         PriceClass: !Ref CDNPriceClass
         Aliases:
           !If
-            - IsPrimaryAndUseCustomDomain
+            - UseCustomDomain
             - 
               - !Sub ${CustomDomain}
             - !Ref "AWS::NoValue"
         ViewerCertificate:
           !If
-            - IsPrimaryAndUseCustomDomain
+            - UseCustomDomain
             - 
               AcmCertificateArn: !Ref DomainCertificateArn
               SslSupportMethod: sni-only
@@ -233,10 +227,10 @@ Resources:
               CloudFrontDefaultCertificate: true
         Logging:
           !If
-            - IsPrimaryAndEnableLogging
+            - EnableLogging
             - 
-              Bucket: !Ref LoggingBucketName
-              Prefix: !Sub CloudFrontLogs/S3-${OriginBucketName}
+              Bucket: !Sub ${LoggingBucketName}.s3.amazonaws.com
+              Prefix: !Sub CloudFront/${AppCode}-${Environment}/
               IncludeCookies: false
             - !Ref "AWS::NoValue"
 
@@ -255,7 +249,7 @@ Outputs:
     Condition: IsPrimaryRegion
     Value: 
       !If
-        - IsPrimaryAndUseCustomDomain
+        - UseCustomDomain
         - !Sub "https://${CustomDomain}"
         - !Sub "https://${CloudFrontDistribution.DomainName}"
     Export:

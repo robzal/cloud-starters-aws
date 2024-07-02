@@ -20,21 +20,30 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
+  LoggingBucketName:
+    Description: Name of S3 Bucket used for Access Logs.
+    Type: String
+    Default: "238160719262-logging"
+  CloudformationBucketName:
+    Description: Name of S3 Bucket used for Cloudformation deployments.
+    Type: String
+    Default: "238160719262-cloudformation"
+  DeploymentBucketName:
+    Description: Name of S3 Bucket used for Code Deployments.
+    Type: String
+    Default: "238160719262-deployments"
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources (all of these)
     Type: String
     Default: "ap-southeast-2"
 
 Conditions:
-  UseCMKKMS: !Equals 
+  UseKMS: !Equals 
     - !Ref EnableKMSEncryption
     - "true"
   IsPrimaryRegion: !Equals 
     - !Ref PrimaryRegion
     - !Ref AWS::Region
-  IsPrimaryAndUseKMS: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition UseCMKKMS
 
 Resources:
   AdminPolicy:
@@ -77,7 +86,7 @@ Resources:
 
   AdminKMSKey:
     Type: AWS::KMS::Key
-    Condition: IsPrimaryAndUseKMS
+    Condition: UseKMS
     Properties:
       Description: Used for Admin S3 buckets by Deployment Accounts to Encrypt/Decrypt code
       EnableKeyRotation: false
@@ -119,25 +128,30 @@ Resources:
             Resource: "*"
   AdminKMSKeyAlias:
     Type: AWS::KMS::Alias
-    Condition: IsPrimaryAndUseKMS
+    Condition: UseKMS
     Properties:
       AliasName: !Sub alias/admin-bucket-key
       TargetKeyId: !Ref AdminKMSKey
 
   LoggingBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryRegion
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-logging'
-      AccessControl: 'LogDeliveryWrite'
+      BucketName: !Ref LoggingBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
       BucketEncryption:
         !If
-        - UseCMKKMS
+        - UseKMS
         - 
           ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              KMSMasterKeyID:  AdminKMSKey
-              SSEAlgorithm: 'aws:kms'
+              # CMK KMS Keys arent suported for log delivery, so we have to use AWS managed
+              # KMSMasterKeyID:  !Ref AdminKMSKey
+              # SSEAlgorithm: 'aws:kms'
+              SSEAlgorithm: 'AES256'
         - !Ref "AWS::NoValue"
       LifecycleConfiguration:
         Rules:
@@ -146,7 +160,6 @@ Resources:
             ExpirationInDays: 30
   LoggingBucketPolicy:
     Type: "AWS::S3::BucketPolicy"
-    Condition: IsPrimaryRegion
     Properties:
       Bucket: !Ref LoggingBucket
       PolicyDocument:
@@ -156,30 +169,44 @@ Resources:
           Principal:
             Service: "delivery.logs.amazonaws.com"
           Action: "s3:GetBucketAcl"
-          Resource: !Sub "arn:aws:s3:::${LoggingBucket}"
+          Resource: !Sub "${LoggingBucket.Arn}"
         - Effect: Allow
           Principal:
             Service: "delivery.logs.amazonaws.com"
           Action: "s3:PutObject"
-          Resource: !Sub "arn:aws:s3:::${LoggingBucket}/AWSLogs/${AWS::AccountId}/*"
+          Resource: !Sub "${LoggingBucket.Arn}/*"
+        - Effect: Allow
+          Principal:
+            Service: "logging.s3.amazonaws.com"
+          Action: "s3:GetBucketAcl"
+          Resource: !Sub "${LoggingBucket.Arn}"
+        - Effect: Allow
+          Principal:
+            Service: "logging.s3.amazonaws.com"
+          Action: "s3:PutObject"
+          Resource: !Sub "${LoggingBucket.Arn}/*"
   CloudformationBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryRegion
     DependsOn: [LoggingBucket]
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-cloudformation'
+      BucketName: !Ref CloudformationBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
       BucketEncryption:
         !If
-        - UseCMKKMS
+        - UseKMS
         - 
           ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              KMSMasterKeyID:  AdminKMSKey
+              KMSMasterKeyID:  !Ref AdminKMSKey
               SSEAlgorithm: 'aws:kms'
         - !Ref "AWS::NoValue"
       LoggingConfiguration:
-        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/cloudformation
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${CloudformationBucketName}/
       LifecycleConfiguration:
         Rules:
           - Id: PipelineRule
@@ -187,7 +214,6 @@ Resources:
             ExpirationInDays: 7
   CloudformationBucketPolicy: 
     Type: AWS::S3::BucketPolicy
-    Condition: IsPrimaryRegion
     Properties: 
       Bucket: !Ref CloudformationBucket
       PolicyDocument: 
@@ -215,25 +241,28 @@ Resources:
               AWS: !Ref DeploymentAccountIds
   DeploymentsBucket:
     Type: AWS::S3::Bucket
-    Condition: IsPrimaryRegion
     DependsOn: [LoggingBucket]
     Properties:
-      BucketName: !Sub '${AWS::AccountId}-deployments'
+      BucketName: !Ref DeploymentBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
       BucketEncryption:
         !If
-        - UseCMKKMS
+        - UseKMS
         - 
           ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              KMSMasterKeyID:  AdminKMSKey
+              KMSMasterKeyID:  !Ref AdminKMSKey
               SSEAlgorithm: 'aws:kms'
         - !Ref "AWS::NoValue"
       LoggingConfiguration:
-        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/deployments
+        DestinationBucketName: !Ref LoggingBucketName
+        LogFilePrefix: !Sub S3AccessLogs/${DeploymentBucketName}/
   DeploymentsBucketPolicy: 
     Type: AWS::S3::BucketPolicy
-    Condition: IsPrimaryRegion
     Properties: 
       Bucket: !Ref DeploymentsBucket
       PolicyDocument: 
@@ -262,17 +291,14 @@ Resources:
 
 Outputs:
   LoggingBucket:
-    Condition: IsPrimaryRegion
     Value: !Ref LoggingBucket
     Export:
-      Name: !Sub 'LoggingBucket'
+      Name: LoggingBucketName
   CloudformationBucket:
-    Condition: IsPrimaryRegion
     Value: !Ref CloudformationBucket
     Export:
-      Name: !Sub 'CloudformationBucket'
+      Name: CloudformationBucketName
   DeploymentsBucket:
-    Condition: IsPrimaryRegion
     Value: !Ref DeploymentsBucket
     Export:
-      Name: !Sub 'DeploymentsBucket'
+      Name: DeploymentsBucket

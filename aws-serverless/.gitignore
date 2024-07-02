@@ -32,3 +32,4 @@ packages/
 zz.py
 .params*
 .template-out.yaml
+sqs*.*

@@ -354,8 +354,8 @@ Resources:
                       RunOrder: 1                    
                 - Name: Deploy
                   Actions:
-                    - Name: DeployAdmin
-                      Namespace: deployadmin
+                    - Name: Deploy
+                      Namespace: deploy
                       ActionTypeId:
                         Category: Build
                         Owner: AWS

@@ -24,6 +24,7 @@ else
     echo "Deploying Stacks into Secondary Regions."
     for r in ${SECONDARY_REGIONS//,/ }
     do
-        load_env $r $1
+        echo "Deploying Stacks into $r."
+        load_env $r $2
     done
 fi

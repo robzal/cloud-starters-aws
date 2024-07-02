@@ -26,7 +26,8 @@ else
     echo "Deploying Stacks into Secondary Regions."
     for r in ${SECONDARY_REGIONS//,/ }
     do
-        load_env $r $1
+        echo "Deploying Stacks into $r."
+        load_env $r $2
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-mysql-instance cfn/rds-mysql.yaml cfn/rds-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-aurora-mysql-cluster cfn/rds-aurora-mysql.yaml cfn/rds-aurora-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-dms-simple cfn/dms-simple.yaml cfn/dms-simple.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  

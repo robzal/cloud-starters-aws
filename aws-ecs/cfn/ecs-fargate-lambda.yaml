@@ -29,7 +29,7 @@ Parameters:
     VPCID:
         Description: VPCID to deploy this infrastructure into
         Type: String
-        Default: vpc-02dee7d733d73e02c
+        Default: vpc-021729ddaa66979e8
     VPCCIDRBlock:
         Description: CIDR Block for VPC, for use in security group rules
         Type: String
@@ -37,7 +37,7 @@ Parameters:
     ClusterSubnet1:
         Description: Subnet ID 1 for the ECS Cluster. It should not be publicly accessible
         Type: String
-        Default: subnet-058d24196599afd43
+        Default: subnet-0a19f808a9f3ca427
     ClusterSubnet2:
         Description: Subnet ID 2 for the ECS Cluster. It should not be publicly accessible
         Type: String

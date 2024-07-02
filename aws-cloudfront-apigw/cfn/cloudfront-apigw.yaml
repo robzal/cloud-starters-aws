@@ -13,7 +13,7 @@ Parameters:
   CreateWAF:
     Description: Whether to create a WebACL for the distribution.
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: 
       - "true"
       - "false"
@@ -36,14 +36,14 @@ Parameters:
   EnableLogging:
     Description: Whether to enable access logging for the Distribution. You will also need to be provide the bucket name to log to.
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: 
       - "true"
       - "false"
   LoggingBucketName:
     Description: Name of S3 Bucket that this Distribution will log access to (if selected).
     Type: String
-    Default: "238160719262-logging.s3.amazonaws.com"
+    Default: "238160719262-logging"
   APIKeyValue:
     Description: Predetermined value to use for API GW Key (if selected).
     Type: String
@@ -73,12 +73,6 @@ Conditions:
   IsWAFRegionAndCreateWAF: !And 
     - !Condition IsWAFRegion
     - !Condition CreateWAF
-  IsPrimaryAndUseCustomDomain: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition UseCustomDomain
-  IsPrimaryAndEnableLogging: !And 
-    - !Condition IsPrimaryRegion
-    - !Condition EnableLogging
 
 Resources:
   WAFWebACL:
@@ -137,7 +131,6 @@ Resources:
 
   CloudFrontDistribution:
     Type: 'AWS::CloudFront::Distribution'
-    Condition: IsPrimaryRegion
     Properties:
       DistributionConfig:
         Comment: !Sub ${AppCode}-${Environment} Cloudfront Distribution
@@ -186,13 +179,13 @@ Resources:
         PriceClass: !Ref CDNPriceClass
         Aliases:
           !If
-            - IsPrimaryAndUseCustomDomain
+            - UseCustomDomain
             - 
               - !Sub ${CustomDomain}
             - !Ref "AWS::NoValue"
         ViewerCertificate:
           !If
-            - IsPrimaryAndUseCustomDomain
+            - UseCustomDomain
             - 
               AcmCertificateArn: !Ref DomainCertificateArn
               SslSupportMethod: sni-only
@@ -201,16 +194,15 @@ Resources:
               CloudFrontDefaultCertificate: true
         Logging:
           !If
-            - IsPrimaryAndEnableLogging
+            - EnableLogging
             - 
-              Bucket: !Ref LoggingBucketName
-              Prefix: !Sub CloudFront/APIGW/LambdaDemo
+              Bucket: !Sub ${LoggingBucketName}.s3.amazonaws.com
+              Prefix: !Sub CloudFront/${AppCode}-${Environment}/
               IncludeCookies: false
             - !Ref "AWS::NoValue"
 
   APIGWDemoFunctionRole:
     Type: AWS::IAM::Role
-    Condition: IsPrimaryRegion
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -259,7 +251,6 @@ Resources:
 
   APIGWCloudWatchRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsPrimaryRegion
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -275,7 +266,6 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
   APIGWExecutionRole:
     Type: 'AWS::IAM::Role'
-    Condition: IsPrimaryRegion
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
@@ -297,19 +287,16 @@ Resources:
                 Resource: !GetAtt APIGWDemoFunction.Arn
   APIGWAccount:
     Type: 'AWS::ApiGateway::Account'
-    Condition: IsPrimaryRegion
     Properties:
       CloudWatchRoleArn: !GetAtt APIGWCloudWatchRole.Arn 
   APIGWLogGroup:
     Type: 'AWS::Logs::LogGroup'
-    Condition: IsPrimaryRegion
     Properties:
       LogGroupName: !Sub 'API-Gateway-Execution-Logs_${APIGWRestApi}/v1'
       RetentionInDays: 14
 
   APIGWRestApi:
     Type: AWS::ApiGateway::RestApi
-    Condition: IsPrimaryRegion
     Properties:
       ApiKeySourceType: HEADER
       Description: An API Gateway with a Lambda Integration
@@ -319,13 +306,11 @@ Resources:
       Name: !Sub '${AppCode}-${Environment}-APIGW-Demo-Lambda'
   APIGWResource:
     Type: AWS::ApiGateway::Resource
-    Condition: IsPrimaryRegion
     Properties:
       ParentId: !GetAtt APIGWRestApi.RootResourceId
       PathPart: 'lambda'
       RestApiId: !Ref APIGWRestApi
   APIGWMethod:
-    Condition: IsPrimaryRegion
     Type: AWS::ApiGateway::Method
     Properties:
       ApiKeyRequired: true
@@ -343,7 +328,6 @@ Resources:
       ResourceId: !Ref APIGWResource
       RestApiId: !Ref APIGWRestApi
   APIGWModel:
-    Condition: IsPrimaryRegion
     Type: AWS::ApiGateway::Model
     Properties:
       ContentType: 'application/json'
@@ -351,7 +335,6 @@ Resources:
       Schema: {}
   APIGWStage:
     Type: AWS::ApiGateway::Stage
-    Condition: IsPrimaryRegion
     Properties:
       DeploymentId: !Ref APIGWDeployment
       Description: APIGW Demo Function Stage v1
@@ -367,7 +350,6 @@ Resources:
           "status":"$context.status","connectionId":"$context.connectionId"}
   APIGWDeployment:
     Type: AWS::ApiGateway::Deployment
-    Condition: IsPrimaryRegion
     DependsOn: APIGWMethod
     Properties:
       Description: Lambda API Deployment
@@ -375,7 +357,6 @@ Resources:
 
   APIGWUsagePlan:
     Type: AWS::ApiGateway::UsagePlan
-    Condition: IsPrimaryRegion
     DependsOn: APIGWRestApi
     Properties:
       ApiStages:
@@ -389,7 +370,6 @@ Resources:
         RateLimit: 100
   APIGWApiKey:
     Type: AWS::ApiGateway::ApiKey
-    Condition: IsPrimaryRegion
     DependsOn: APIGWUsagePlan
     Properties:
       Enabled: true
@@ -402,7 +382,6 @@ Resources:
       #     Ref: APIGWStage
   APIGWUsagePlanKey:
     Type: AWS::ApiGateway::UsagePlanKey
-    Condition: IsPrimaryRegion
     DependsOn: APIGWApiKey
     Properties:
       KeyId:
@@ -413,20 +392,17 @@ Resources:
 
 Outputs:
   APIGWUrl:
-    Condition: IsPrimaryRegion
     Value: !Sub 'https://${APIGWRestApi}.execute-api.${AWS::Region}.amazonaws.com'
     Export:
       Name: !Sub "${AppCode}-${Environment}-apigw-url"
   CloudFrontDistribution:
-    Condition: IsPrimaryRegion
     Value: !Ref CloudFrontDistribution
     Export:
       Name: !Sub "${AppCode}-${Environment}-cdn-id"
   CloudFrontDistributionUrl:
-    Condition: IsPrimaryRegion
     Value: 
       !If
-        - IsPrimaryAndUseCustomDomain
+        - UseCustomDomain
         - !Sub "https://${CustomDomain}"
         - !Sub "https://${CloudFrontDistribution.DomainName}"
     Export:

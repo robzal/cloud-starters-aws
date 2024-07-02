@@ -27,7 +27,8 @@ else
     echo "Deploying Stacks into Secondary Regions."
     for r in ${SECONDARY_REGIONS//,/ }
     do
-        load_env $r $1
+        echo "Deploying Stacks into $r."
+       load_env $r $2
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-ec2-linux-instance cfn/ec2-linux.yaml cfn/ec2-linux.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-ec2-windows-instance cfn/ec2-windows.yaml cfn/ec2-windows.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-ec2-linux-asg cfn/ec2-linux-scaling.yaml cfn/ec2-linux-scaling.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  

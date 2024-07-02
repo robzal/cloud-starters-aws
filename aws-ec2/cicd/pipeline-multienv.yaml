@@ -361,7 +361,7 @@ Resources:
                       OutputArtifacts:
                         - Name: BuildZip
                       RunOrder: 1
-                - Name: Approve-Deployment
+                - Name: Approve-Dev
                   Actions:
                     - Name: Approve-Deployment
                       ActionTypeId:
@@ -370,46 +370,8 @@ Resources:
                         Provider: Manual
                         Version: 1
                       RunOrder: 1                    
-                - Name: DeployAllAccounts
+                - Name: DeployDev
                   Actions:
-                    - Name: DeployAdmin
-                      Namespace: deployadmin
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"${AdminEnvironment}","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
-                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: BuildZip
-                      RunOrder: 1
-                    - Name: DeployShared
-                      Namespace: deployshared
-                      ActionTypeId:
-                        Category: Build
-                        Owner: AWS
-                        Provider: CodeBuild
-                        Version: 1
-                      Configuration:
-                        ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNShared}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"${SharedEnvironment}","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
-                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
-                          ]'
-                      InputArtifacts:
-                        - Name: BuildZip
-                      RunOrder: 2
                     - Name: DeployDev
                       Namespace: deploydev
                       ActionTypeId:
@@ -428,7 +390,19 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: BuildZip
-                      RunOrder: 3
+                      RunOrder: 1
+
+                - Name: Approve-Test-Prod
+                  Actions:
+                    - Name: Approve-Deployment
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: DeployTestProd
+                  Actions:
                     - Name: DeployTest
                       Namespace: deploytest
                       ActionTypeId:
@@ -447,7 +421,7 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: BuildZip
-                      RunOrder: 4
+                      RunOrder: 1
                     - Name: DeployProd
                       Namespace: deployprod
                       ActionTypeId:
@@ -466,4 +440,54 @@ Resources:
                           ]'
                       InputArtifacts:
                         - Name: BuildZip
-                      RunOrder: 5
+                      RunOrder: 2
+
+                - Name: Approve-Shared-Admin
+                  Actions:
+                    - Name: Approve-Deployment
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: DeploySharedAdmin
+                  Actions:
+                    - Name: DeployShared
+                      Namespace: deployshared
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNShared}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${SharedEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                    - Name: DeployAdmin
+                      Namespace: deployadmin
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNAdmin}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${AdminEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 2
