@@ -116,6 +116,7 @@ Resources:
   EKSKMSKey:
     Type: "AWS::KMS::Key"
     Properties:
+      PendingWindowInDays: 7
       KeyPolicy: {
         "Version": "2012-10-17",
         "Id": "key-default-1",
