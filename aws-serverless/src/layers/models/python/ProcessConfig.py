@@ -83,6 +83,7 @@ class ProcessConfig(object):
             logger.info(str(error))
 
 if __name__ == '__main__':
+    pass
     # process_config = ProcessConfig()
     # proc_name='DemoQueue'
     # process_config.add_update_item(proc_name, 'max_concurrent_processor_lambdas', '1')

@@ -111,8 +111,9 @@ class ProcessedFile(object):
             logger.info(str(error))
 
 if __name__ == '__main__':
-    processed_file = ProcessedFile()
-    processed_file.add_update_item('myfilename')
-    processed_file_item = processed_file.get_item('myfilename')
-    logger.info(processed_file_item.filename)
-    processed_file.delete_item('myfilename')
+    pass
+    # processed_file = ProcessedFile()
+    # processed_file.add_update_item('myfilename')
+    # processed_file_item = processed_file.get_item('myfilename')
+    # logger.info(processed_file_item.filename)
+    # processed_file.delete_item('myfilename')
