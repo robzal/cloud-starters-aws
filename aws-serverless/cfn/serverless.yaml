@@ -46,7 +46,15 @@ Parameters:
     Default: "5"
   ProcessLambdaTimeoutSecs:
     Type: String
-    Default: "300"
+    Default: "120"
+  QueueVisibilityTimeout:
+    Type: String
+    Default: "125"
+  SQSDirectLambdaStream:
+    Type: String
+    Default: 'false'
+    Description: If true, enables trigger of queue process lambda from SQS event and sets event as the record source, otherwise use the step function to process the queue
+    AllowedValues: ['true', 'false']
   QueueProcessName:
     Type: String
     Default: "DemoQueue"
@@ -73,6 +81,9 @@ Conditions:
   IsPrimaryRegion: !Equals 
     - !Ref PrimaryRegion
     - !Ref AWS::Region
+  QueueProcessDirect: !Equals 
+    - !Ref SQSDirectLambdaStream
+    - "true"
 
 Resources:
   FileDataBucket:
@@ -84,9 +95,9 @@ Resources:
           - ServerSideEncryptionByDefault:
               KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3'
               SSEAlgorithm: 'aws:kms'
-      LoggingConfiguration:
-        DestinationBucketName: !Sub '${AWS::AccountId}-logging'
-        LogFilePrefix: s3serveraccesslogs/file-data
+      # LoggingConfiguration:
+      #   DestinationBucketName: !Sub '${AWS::AccountId}-logging'
+      #   LogFilePrefix: s3serveraccesslogs/file-data
       NotificationConfiguration:
         QueueConfigurations:
           - Event: s3:ObjectCreated:*
@@ -194,7 +205,7 @@ Resources:
               - 'states:StartExecution'
               - 'states:ListExecutions'
             Resource:
-              - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Process-Queue-Machine'
+              - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Queue-Process-SFN'
   SQSPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
@@ -249,7 +260,7 @@ Resources:
   ProcessSQSQueue:
     Type: 'AWS::SQS::Queue'
     Properties:
-      VisibilityTimeout: 120
+      VisibilityTimeout: !Ref QueueVisibilityTimeout
   ProcessSQSQueuePolicy:
     Type: 'AWS::SQS::QueuePolicy'
     Properties:
@@ -270,7 +281,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     DependsOn: ControlSFNFunctionLogGroup
     Properties:
-      FunctionName: !Sub '${AppCode}-${Environment}-Process-Queue-Control-Lambda'
+      FunctionName: !Sub '${AppCode}-${Environment}-Queue-Process-Control-Lambda'
       Code:
         S3Bucket: !Ref LambdaBucket
         S3Key: !Ref ControlSFNFunctionBucketKey
@@ -288,7 +299,7 @@ Resources:
           ENVIRONMENT: !Ref Environment
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
-          STEP_FUNCTION_ARN: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Process-Queue-Machine'
+          STEP_FUNCTION_ARN: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Queue-Process-SFN'
           DYNAMODB_CONTROL_TABLE_NAME: !Ref ControlDynamoDBTable
           DYNAMODB_CONTROL_TABLE_ARN: !GetAtt ControlDynamoDBTable.Arn
           PROCESSOR_LAMBDA_NAME: !Ref ProcessSQSFunction
@@ -300,12 +311,12 @@ Resources:
   ControlSFNFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Process-Queue-Control-Lambda'
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Queue-Process-Control-Lambda'
       RetentionInDays: 14
   ControlSFNFunctionIAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Control-Lambda-IAMRole'
+      RoleName: !Sub '${AppCode}-${Environment}-Queue-Process-Control-Lambda-IAMRole'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -340,7 +351,7 @@ Resources:
     Type: 'AWS::Lambda::Function'
     DependsOn: ProcessSQSFunctionLogGroup
     Properties:
-      FunctionName: !Sub '${AppCode}-${Environment}-Process-Queue-Execute-Lambda'
+      FunctionName: !Sub '${AppCode}-${Environment}-Queue-Process-Lambda'
       Code:
         S3Bucket: !Ref LambdaBucket
         S3Key: !Ref ProcessSFNFunctionBucketKey
@@ -358,19 +369,23 @@ Resources:
           ENVIRONMENT: !Ref Environment
           SQS_QUEUE_URL: !Ref ProcessSQSQueue
           SQS_QUEUE_ARN: !GetAtt ProcessSQSQueue.Arn
+          DYNAMODB_CONTROL_TABLE_NAME: !Ref ControlDynamoDBTable
+          DYNAMODB_CONTROL_TABLE_ARN: !GetAtt ControlDynamoDBTable.Arn
           DYNAMODB_FILES_TABLE_NAME: !Ref FilesDynamoDBTable 
           DYNAMODB_FILES_TABLE_ARN: !GetAtt FilesDynamoDBTable.Arn 
           PROCESSOR_LAMBDA_SQS_BATCH_SIZE: !Ref ProcessLambdaSQSBatchSize
           PROCESSOR_LAMBDA_TIMEOUT_SECS: !Ref ProcessLambdaTimeoutSecs
+          PROCESS_NAME: !Ref QueueProcessName
+          SQS_DIRECT_LAMBDA_STREAM: !Ref SQSDirectLambdaStream
   ProcessSQSFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Process-Queue-Execute-Lambda'
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-${Environment}-Queue-Process-Lambda'
       RetentionInDays: 14
   ProcessSQSFunctionIAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Execute-Lambda-IAMRole'
+      RoleName: !Sub '${AppCode}-${Environment}-Queue-Process-Lambda-IAMRole'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -386,6 +401,14 @@ Resources:
         - !Ref 'StepFunctionPolicy'
         - !Ref 'DynamoReadWritePolicy'
         - !Ref 'SQSPolicy'
+  ProcessSQSFunctionEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: !Ref ProcessLambdaSQSBatchSize
+      Enabled: !If [ QueueProcessDirect, true, false ]
+      EventSourceArn: !GetAtt ProcessSQSQueue.Arn
+      FunctionName: !GetAtt ProcessSQSFunction.Arn
+      MaximumBatchingWindowInSeconds: 10
 
   FileAPIFunction:
     Type: 'AWS::Lambda::Function'
@@ -456,7 +479,7 @@ Resources:
   ProcessQueueStateMachineExecutionRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${AppCode}-${Environment}-Process-Queue-Machine-Role'
+      RoleName: !Sub '${AppCode}-${Environment}-Queue-Process-SFN-Role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -483,23 +506,28 @@ Resources:
                 Resource: 
                   - !GetAtt 'ControlSFNFunction.Arn'
                   - !GetAtt 'ProcessSQSFunction.Arn'
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource: 
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppCode}-${Environment}-Queue-Process-SFN'
   ProcessQueueStateMachineLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-Process-Queue-Machine'
+      LogGroupName: !Sub 'step/${AWS::Region}/${AWS::AccountId}/${AppCode}-${Environment}-Queue-Process-SFN'
       RetentionInDays: 14
   ProcessQueueStateMachine:
     Type: 'AWS::StepFunctions::StateMachine'
     Properties:
-      StateMachineName: !Sub '${AppCode}-${Environment}-Process-Queue-Machine'
+      StateMachineName: !Sub '${AppCode}-${Environment}-Queue-Process-SFN'
       DefinitionString:
         !Sub
           - |-
             {
               "Comment": "Demo SQS Poll and Process Workflow",
-              "StartAt": "PollAndProcessSQS",
+              "StartAt": "Poll SQS",
               "States": {
-                  "PollAndProcessSQS": {
+                  "Poll SQS": {
                       "Type": "Task",
                       "Resource": "${ControlFunction}",
                       "Parameters": {
@@ -524,13 +552,13 @@ Resources:
                               "BackoffRate": 1.2
                           }
                       ],
-                      "Next": "AllDone",
+                      "Next": "Evaluate Action",
                       "Catch": [
                           {
                               "ErrorEquals": [
                                   "StillProcessingException"
                               ],
-                              "Next": "WaitForProcessing"
+                              "Next": "Wait For Processing"
                           },
                           {
                               "ErrorEquals": [
@@ -565,10 +593,55 @@ Resources:
                       ],
                       "TimeoutSeconds": 1800
                   },
-                  "WaitForProcessing": {
+                  "Evaluate Action": {
+                    "Type" : "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.run_count",
+                        "NumericGreaterThan": 0,
+                        "Next": "Prep Action"
+                      }
+                    ],
+                    "Default": "AllDone"
+                  },
+                  "Prep Action": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "procs.$": "States.ArrayRange(1, $.run_count, 1)"
+                    },
+                    "Next": "Process Messages"
+                  },
+                  "Process Messages": {
+                    "Type": "Map",
+                    "ItemsPath": "$.procs",
+                    "ItemSelector": {
+                      "instance.$": "$$.Map.Item.Value"
+                    },
+                    "ItemProcessor": {
+                      "StartAt": "Start Processor",
+                      "ProcessorConfig": {
+                        "Mode": "DISTRIBUTED",
+                        "ExecutionType": "STANDARD"
+                      },
+                      "States": {
+                        "Start Processor": {
+                          "Type": "Task",
+                          "Resource": "arn:aws:states:::lambda:invoke",
+                          "OutputPath": "$.Payload",
+                          "Parameters": {
+                            "Payload.$": "$",
+                            "FunctionName": "${ProcessFunction}"
+                          },
+                          "End": true
+                        }
+                      }
+                    },
+                    "Next": "Wait For Processing"
+                  },
+                  "Wait For Processing": {
                       "Type": "Wait",
                       "Seconds": 30,
-                      "Next": "PollAndProcessSQS"
+                      "Next": "Poll SQS"
                   },
                   "ProcessingException": {
                     "Type": "Fail",
@@ -615,7 +688,7 @@ Resources:
   ProcessQueueScheduleRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AppCode}-${Environment}-Process-Queue-Machine-Schedule-Role
+      RoleName: !Sub ${AppCode}-${Environment}-Queue-Process-SFN-Schedule-Role
       Description: Role used by event rule responsible for triggering the queue process state machine.
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -638,7 +711,6 @@ Resources:
       - Arn: !GetAtt ProcessQueueStateMachine.Arn
         Id: ProcessQueueScheduleRuleTarget
         RoleArn: !GetAtt 'ProcessQueueScheduleRole.Arn'
-
   FileAPICloudWatchRole:
     Type: 'AWS::IAM::Role'
     Properties:

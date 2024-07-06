@@ -195,7 +195,6 @@ def calc_needed_lambdas(msgs, spare, per_lambda ):
 
     return min(math.ceil(msgs/per_lambda),spare)
 
-
 def start_processors(count):
     try:
         for p in range(0, count):
@@ -215,7 +214,6 @@ def start_processors(count):
             #         '...': '...',
             #     },
             # }
-            sleep(0.25)
         return True
 
     except Exception as error:
@@ -227,6 +225,9 @@ def handler(event, context):
 
     logger.info("Starting SQS Process Control Lambda")
     logger.info(event)
+
+    sfn_response = {}
+    sfn_response["run_count"] = "0"
 
     #get os config
     read_env_config(event)
@@ -252,16 +253,13 @@ def handler(event, context):
         if spare > 0:
             needed = calc_needed_lambdas(msgs, spare, per_lambda )
             logger.info('starting {} processors'.format(needed))
-            # run needed lambdas
-            if start_processors(needed):
-                raise StillProcessingException()
-            else:
-                raise ProcessException() 
+            # return needed lambdas
+            sfn_response["run_count"] = needed
+
         else:
             raise CapacityException()
-        
-    else:
-        return
+
+    return sfn_response
 
 if __name__ == '__main__':
     SF_Record = {
