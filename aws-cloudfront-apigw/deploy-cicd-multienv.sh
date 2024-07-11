@@ -17,6 +17,9 @@ echo "Deploying Stacks into Primary Region."
 # Pipeline itself deployed to primary region in DevOps account only
 if [[ ${AWS_ACCOUNT_ID} == ${DEVOPS_ACCOUNT} ]]; then 
     deploy_stack $1 $AWS_PROFILE ${APP_CODE}-multienv-pipeline cicd/pipeline-multienv.yaml cicd/pipeline-multienv.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+    #deploy_stack $1 $AWS_PROFILE ${APP_CODE}-multibranch-pipeline cicd/pipeline-multibranch.yaml cicd/pipeline-multibranch.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 fi
 # Deployment Role deployed to primary region in any chosen account
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-multienv-${ENVIRONMENT}-deployment-role cicd/pipeline-deployment-role.yaml cicd/pipeline-deployment-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+if [[ -n "$DEPLOYMENT_ROLE_ARN" ]]; then
+    deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-deployment-role cicd/pipeline-deployment-role.yaml cicd/pipeline-deployment-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+fi

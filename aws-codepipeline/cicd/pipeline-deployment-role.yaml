@@ -8,13 +8,14 @@ Parameters:
   Environment:
     Type: 'String'
     Default: 'dev'
-  CodePipelineCode:
-    Type: 'String'
-    Default: 'multienv'
   DevOpsAccountID:
     Description: AWS AccountNumber for DevOps account
     Type: String
     Default: 238160719262
+  PipelineRoleSuffix:
+    Type: String
+    Default: CodePipeline-Role
+    Description: Suffix for IAM Pipeline role being used
   DeploymentRoleSuffix:
       Type: String
       Default: Deployment-Role
@@ -42,12 +43,12 @@ Resources:
             Action:
               - '*'
             Resource: '*'
-      ManagedPolicyName: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-Deployment-Policy'
+      ManagedPolicyName: !Sub '${AppCode}-${Environment}-Deployment-Policy'
   DeploymentRole:
     Type: 'AWS::IAM::Role'
     Condition: IsPrimaryRegion
     Properties:
-      RoleName: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-${DeploymentRoleSuffix}'
+      RoleName: !Sub '${AppCode}-${Environment}-${DeploymentRoleSuffix}'
       ManagedPolicyArns: 
         - !Ref DeploymentPolicy
       AssumeRolePolicyDocument:
@@ -56,7 +57,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${DevOpsAccountID}:role/${AppCode}-${CodePipelineCode}-CodePipeline-Role
+                - !Sub arn:aws:iam::${DevOpsAccountID}:role/${AppCode}-${PipelineRoleSuffix}
             Action: 'sts:AssumeRole'
 
 Outputs:
@@ -64,4 +65,4 @@ Outputs:
     Condition: IsPrimaryRegion
     Value: !Ref DeploymentRole
     Export:
-      Name: !Sub '${AppCode}-${CodePipelineCode}-${Environment}-${DeploymentRoleSuffix}'
+      Name: !Sub '${AppCode}-${Environment}-${DeploymentRoleSuffix}'

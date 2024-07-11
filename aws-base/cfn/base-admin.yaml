@@ -81,7 +81,7 @@ Resources:
           - Effect: Allow
             Principal:
               AWS:
-                - !Sub arn:aws:iam::${IdentityAccountID}:role/${AppCode}-CodePipeline-Role
+                - !Sub arn:aws:iam::${IdentityAccountID}:role/${AppCode}-${PipelineRoleSuffix}
             Action: 'sts:AssumeRole'
 
   AdminKMSKey:

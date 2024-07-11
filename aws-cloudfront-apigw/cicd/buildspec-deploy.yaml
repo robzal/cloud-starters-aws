@@ -23,6 +23,7 @@ phases:
   build:
     commands:
       - echo Deploying $APP_CODE stacks to $ENVIRONMENT Account using $DEPLOYMENT_ROLE
+      - echo ./deploy.sh $REGION $ENVIRONMENT default $DEPLOYMENT_ROLE
       - ./deploy.sh $REGION $ENVIRONMENT default $DEPLOYMENT_ROLE
 
   post_build:

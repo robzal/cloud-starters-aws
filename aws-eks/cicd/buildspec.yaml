@@ -23,6 +23,10 @@ phases:
   build:
     commands:
       - echo Running Build tasks for $APP_CODE 
+      - chmod 777 *.sh
+      - chmod 777 scripts/*.sh
+      - chmod 777 config/.*.*
+      - echo ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
       - ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
 
   post_build:

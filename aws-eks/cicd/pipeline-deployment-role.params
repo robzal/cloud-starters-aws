@@ -1,6 +1,6 @@
 AppCode=${APP_CODE}
 Environment=${ENVIRONMENT}
-CodePipelineCode=${CODE_PIPELINE_CODE}
 DevOpsAccountID=${DEVOPS_ACCOUNT}
+PipelineRoleSuffix=${PIPELINE_ROLE_SUFFIX}
 DeploymentRoleSuffix=${DEPLOYMENT_ROLE_SUFFIX}
 PrimaryRegion=${PRIMARY_REGION}

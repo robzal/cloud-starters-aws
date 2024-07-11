@@ -11,10 +11,10 @@ PipelineBucket=${PIPELINE_BUCKET}
 PipelineBucketKMSKeyAliasARN=${PIPELINE_KMS_KEY_ALIAS_ARN}
 CloudformationBucket=${CLOUDFORMATION_BUCKET}
 BuildBucket=${BUILD_BUCKET}
-CodeCommitRepoName=${CODE_COMMIT_REPONAME}
-CodeCommitBranchName=${CODE_COMMIT_BRANCH}
-
-CodePipelineCode=${CODE_PIPELINE_CODE}
+GithubConnectionArn=${GITHUB_CONNECTION_ARN}
+GithubOrgRepoName=${GITHUB_ORG_REPONAME}
+GithubRepoBranchList=${GITHUB_BRANCH_LIST}
+PipelineRoleSuffix=${PIPELINE_ROLE_SUFFIX}
 BuildRoleSuffix=${BUILD_ROLE_SUFFIX}
 DeploymentRoleSuffix=${DEPLOYMENT_ROLE_SUFFIX}
 
@@ -29,3 +29,5 @@ CodeBuildType=${CODE_BUILD_TYPE}
 VPCID=${CODE_BUILD_VPC_ID}
 VPCSubnetIDs=${CODE_BUILD_VPC_SUBNET_IDS}
 VPCSecGroupID=${CODE_BUILD_VPC_SECGROUP_ID}
+SuccessEmailSubscription=${NOTIFICATION_EMAIL_ADDRESS}
+FailureEmailSubscription=${NOTIFICATION_EMAIL_ADDRESS}

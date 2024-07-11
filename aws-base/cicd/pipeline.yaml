@@ -25,14 +25,23 @@ Parameters:
     Type: String
     Default: 238160719262-builds
     Description: Name of S3 bucket for build artefacts 
-  CodeCommitRepoName:
+  GithubConnectionArn:
     Type: String
-    Default: pipeline-test
-    Description: Name of the CodeCommit Repo containing source to build / deploy with the pipeline
-  CodeCommitBranchName:
+    # Default: arn:aws:codestar-connections:ap-southeast-2:238160719262:connection/897c2d7e-8480-49fa-971d-3cc398cecbb6
+    Default: ""
+    Description: Arn of the Codestar Connection for the Pipeline source, or one will be created if not provided
+  GithubOrgRepoName:
     Type: String
-    Default: master
-    Description: Name of the CodeCommit Branch for trigger pipeline
+    Default: robzal/pipeline-test
+    Description: Name of the Github Repo used in pipeline
+  GithubRepoBranchList:
+    Type: CommaDelimitedList
+    Default: main,develop
+    Description: Name(s) Of Git Repo Branch(es) used to start pipeline (csv list allowed)
+  PipelineRoleSuffix:
+    Type: String
+    Default: CodePipeline-Role
+    Description: Suffix for IAM Pipeline role being used
   BuildRoleSuffix:
     Type: String
     Default: Build-Role
@@ -41,6 +50,10 @@ Parameters:
     Type: String
     Default: Deployment-Role
     Description: Suffix for IAM Deployment role being created
+  DeploymentRoleARN:
+    Type: String
+    Default: ""
+    Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls. If not provided, a local role will be created and used
   CodeBuildImage:
     Type: String
     Default: "aws/codebuild/standard:6.0"
@@ -65,14 +78,46 @@ Parameters:
     Type: String
     Default: ""
     Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
+  SuccessEmailSubscription:
+    Type: String
+    Default: ""
+    Description: email address to receive pipeline successful completion notifications
+  FailureEmailSubscription:
+    Type: String
+    Default: ""
+    Description: email address to receive pipeline or stage failure notifications
+
 Conditions:
   UseVPC: !Not
     - !Equals
       - !Ref  VPCID
       - ""
+  SuccessSubscription: !Not
+    - !Equals
+      - !Ref  SuccessEmailSubscription
+      - ""
+  FailureSubscription: !Not
+    - !Equals
+      - !Ref  FailureEmailSubscription
+      - ""
+  CreateConnection: !Equals
+      - !Ref  GithubConnectionArn
+      - ""
+  CreateDeploymentRole: !Equals
+      - !Ref  DeploymentRoleARN
+      - ""
+
 Resources:
+    GithubConnection:
+      Condition: CreateConnection
+      Type: AWS::CodeStarConnections::Connection
+      Properties:
+        ConnectionName: !Sub ${AppCode}-github-connection
+        ProviderType: GitHub
+
     DeploymentPolicy:
       Type: AWS::IAM::ManagedPolicy
+      Condition: CreateDeploymentRole
       Properties: 
         Description: Deployment Role Access"
         Path: "/"
@@ -83,12 +128,13 @@ Resources:
               Action:
                 - '*'
               Resource: '*'
-        ManagedPolicyName: !Sub '${AppCode}-${Environment}-Deployment-Policy'
+        ManagedPolicyName: !Sub '${AppCode}-Deployment-Policy'
     DeploymentRole:
       Type: 'AWS::IAM::Role'
+      Condition: CreateDeploymentRole
       DependsOn: PipelineRole
       Properties:
-        RoleName: !Sub '${AppCode}-${Environment}-${DeploymentRoleSuffix}'
+        RoleName: !Sub '${AppCode}-${DeploymentRoleSuffix}'
         ManagedPolicyArns: 
           - !Ref DeploymentPolicy
         AssumeRolePolicyDocument:
@@ -97,7 +143,7 @@ Resources:
             - Effect: Allow
               Principal:
                 AWS:
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${Environment}-CodePipeline-Role
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${PipelineRoleSuffix}
               Action: 'sts:AssumeRole'
 
     BuildPolicy:
@@ -112,12 +158,12 @@ Resources:
               Action:
                 - '*'
               Resource: '*'
-        ManagedPolicyName: !Sub '${AppCode}-${Environment}-Build-Policy'
+        ManagedPolicyName: !Sub '${AppCode}-Build-Policy'
     BuildRole:
       Type: 'AWS::IAM::Role'
       DependsOn: PipelineRole
       Properties:
-        RoleName: !Sub '${AppCode}-${Environment}-${BuildRoleSuffix}'
+        RoleName: !Sub '${AppCode}-${BuildRoleSuffix}'
         ManagedPolicyArns: 
           - !Ref BuildPolicy
         AssumeRolePolicyDocument:
@@ -126,19 +172,19 @@ Resources:
             - Effect: Allow
               Principal:
                 AWS:
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${Environment}-CodePipeline-Role
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${PipelineRoleSuffix}
               Action: 'sts:AssumeRole'
 
     BuildProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
-        LogGroupName: !Sub '/aws/codebuild/${AppCode}-${Environment}-build-project'
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-build-project'
         RetentionInDays: 14
     BuildProject:
         Type: AWS::CodeBuild::Project
         DependsOn: BuildProjectLogGroup
         Properties:
-            Name: !Sub ${AppCode}-${Environment}-build-project
+            Name: !Sub ${AppCode}-build-project
             EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
@@ -168,13 +214,13 @@ Resources:
     DeployProjectLogGroup:
       Type: 'AWS::Logs::LogGroup'
       Properties:
-        LogGroupName: !Sub '/aws/codebuild/${AppCode}-${Environment}-deploy-project'
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-deploy-project'
         RetentionInDays: 14
     DeployProject:
         Type: AWS::CodeBuild::Project
         DependsOn: DeployProjectLogGroup
         Properties:
-            Name: !Sub ${AppCode}-${Environment}-deploy-project
+            Name: !Sub ${AppCode}-deploy-project
             EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
             Artifacts:
                 Type: CODEPIPELINE
@@ -237,22 +283,22 @@ Resources:
                 - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-${Environment}-pipeline
             - Effect: Allow
               Action:
-                - 'codecommit:*'
-              Resource: 
-                - !Sub 'arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepoName}'
+                - codestar-connections:UseConnection
+              Resource:
+                - !If [CreateConnection, !Ref GithubConnection, !Ref GithubConnectionArn]
             - Effect: Allow
               Action:
                 - 'codebuild:StartBuild'
                 - 'codebuild:BatchGetBuilds'
               Resource: 
-                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-${Environment}-build-project'
-                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-${Environment}-deploy-project'
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-build-project'
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-deploy-project'
             - Effect: Allow
               Action:
                 - sts:AssumeRole
               Resource: 
-                - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${Environment}-${BuildRoleSuffix}
-                - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${Environment}-${DeploymentRoleSuffix}
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${BuildRoleSuffix}
+                - !If [CreateDeploymentRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${DeploymentRoleSuffix}', !Ref DeploymentRoleARN]
             - Effect: Allow
               Action:
                 - 'ec2:CreateNetworkInterface'
@@ -265,11 +311,16 @@ Resources:
                 - 'ec2:CreateNetworkInterfacePermission'
               Resource: 
                 - "*"
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction 
+              Resource:
+                - !GetAtt PipelineFunction.Arn
     PipelineRole:
       Type: AWS::IAM::Role
       DependsOn: PipelinePolicy
       Properties:
-          RoleName: !Sub '${AppCode}-${Environment}-CodePipeline-Role'
+          RoleName: !Sub '${AppCode}-${PipelineRoleSuffix}'
           AssumeRolePolicyDocument:
               Version: '2012-10-17'
               Statement:
@@ -305,6 +356,15 @@ Resources:
                   Type: KMS
             Name: !Sub ${AppCode}-${Environment}-pipeline
             RoleArn: !GetAtt PipelineRole.Arn
+            PipelineType: V2
+            ExecutionMode: QUEUED
+            Triggers:
+              - ProviderType: CodeStarSourceConnection
+                GitConfiguration:
+                  Push:
+                    - Branches:
+                        Includes: !Ref GithubRepoBranchList
+                  SourceActionName: Source
             Stages:
                 - Name: Source
                   Actions:
@@ -313,11 +373,12 @@ Resources:
                       ActionTypeId:
                         Category: Source
                         Owner: AWS
-                        Provider: CodeCommit
+                        Provider: CodeStarSourceConnection
                         Version: 1
                       Configuration:
-                        RepositoryName: !Ref CodeCommitRepoName
-                        BranchName: !Ref CodeCommitBranchName
+                        ConnectionArn: !If [CreateConnection, !Ref GithubConnection, !Ref GithubConnectionArn]
+                        FullRepositoryId: !Ref GithubOrgRepoName
+                        BranchName: main
                       OutputArtifacts:
                         - Name: SourceZip
                       RunOrder: 1
@@ -363,13 +424,214 @@ Resources:
                         Version: 1
                       Configuration:
                         ProjectName: !Ref DeployProject
-                        EnvironmentVariables: !Sub '[
-                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRole.Arn}","type":"PLAINTEXT"},
-                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
-                          {"name":"ENVIRONMENT","value":"${Environment}","type":"PLAINTEXT"},
-                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
-                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
-                          ]'
+                        EnvironmentVariables: !Sub 
+                          - '[
+                            {"name":"DEPLOYMENT_ROLE","value":"${DEPLOYMENT_ROLE}","type":"PLAINTEXT"},
+                            {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                            {"name":"ENVIRONMENT","value":"${Environment}","type":"PLAINTEXT"},
+                            {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                            {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                            ]'
+                          - 
+                            DEPLOYMENT_ROLE: !If [CreateDeploymentRole, !Sub '${DeploymentRole.Arn}', !Ref DeploymentRoleARN]
+
                       InputArtifacts:
                         - Name: BuildZip
                       RunOrder: 1
+                - Name: PostDeployAction
+                  Actions:
+                    - Name: Lambda
+                      ActionTypeId:
+                        Category: Invoke
+                        Owner: AWS
+                        Provider: Lambda
+                        Version: '1'
+                      RunOrder: 1
+                      Configuration:
+                        FunctionName: !Sub '${AppCode}-pipeline-lambda'
+                        UserParameters: !Sub '{
+                          "PIPELINE_NAME": "${AppCode}-${Environment}-pipeline", 
+                          "DEV_BRANCHES": " develop",
+                          "PROD_BRANCHES": "main", 
+                          "COMMIT_BRANCH": "#{Source.BranchName}",
+                          "COMMIT_ID": "#{Source.CommitId}",
+                          "EXECUTION_ID": "#{codepipeline.PipelineExecutionId}"
+                          }'                
+                      InputArtifacts:
+                        - Name: SourceZip
+
+    PipelineFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        RoleName: !Sub "${AppCode}-pipeline-lambda-Role"
+        ManagedPolicyArns:
+          - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        Path: /
+        Policies:
+          - PolicyName: CodePipelineAccess
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - codepipeline:PutJobSuccessResult
+                    - codepipeline:PutJobFailureResult
+                  Resource:
+                    - '*'
+    PipelineFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-pipeline-lambda'
+        RetentionInDays: 14
+    PipelineFunction:
+      Type: AWS::Lambda::Function
+      DependsOn: PipelineFunctionLogGroup
+      Properties:
+        Code: 
+          ZipFile: !Sub |
+            import os
+            import boto3
+
+            def send_codepipeline_result(jobid, result):
+                
+                code_pipeline = boto3.client('codepipeline')
+                if result:
+                    print('Lambda Pipeline job succeeded' )
+                    print('jobID ' + jobid)
+                    code_pipeline.put_job_success_result(jobId=jobid)   
+                else:
+                    print('Lambda job failed')
+                    print('jobID ' + jobid)
+                    detail = {
+                        'type': 'JobFailed',
+                        'message': 'Lambda job failed'
+                    }
+                    code_pipeline.put_job_failure_result(jobId=jobid,failureDetails=detail)    
+
+            def enable_stage(pipelineName, stageName):
+                
+              code_pipeline.enable_stage_transition(
+                  pipelineName=pipelineName,
+                  stageName=stageName,
+                  transitionType='Inbound'
+              )
+
+            def handler(event, context):
+
+                print('CodePipeline Action Lambda event')
+                print(event)
+                print (event)
+                print (os.environ)
+
+                jobid = 'unknown'
+                try:
+                    print('CodePipeline Action Lambda Job ID')
+                    jobid =  event['CodePipeline.job']['id']
+                    print('jobID ' + jobid)
+
+                    # Add custom action logic here returning True or False
+
+                    send_codepipeline_result(jobid, True)
+                except Exception as error:
+                    print('CodePipeline Action Lambda')
+                    print(str(error))
+                    print('jobID ' + jobid)    
+                    send_codepipeline_result(jobid, False)
+        Role:
+          Fn::GetAtt:
+          - PipelineFunctionRole
+          - Arn
+        Handler: index.handler
+        Runtime: python3.11
+        MemorySize: 128
+        Timeout: 10
+        FunctionName: !Sub '${AppCode}-pipeline-lambda'
+        Environment:
+          Variables:
+            APP_CODE: !Ref AppCode
+
+    PipelineSuccessListener: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: Pipeline
+      Properties:
+              Name: 'Success Notification Rule for Pipeline Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-${Environment}-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-pipeline-execution-succeeded
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineSuccessSNSTopic
+    PipelineFailListener: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: Pipeline
+      Properties:
+              Name: 'Failure Notification Rule for Pipeline Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-${Environment}-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-action-execution-failed
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineFailSNSTopic
+    PipelineSuccessSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !Sub '${AppCode}-pipeline-success-sns-topic'
+        TopicName: !Sub '${AppCode}-pipeline-success-sns-topic'
+        Subscription:
+          !If
+          - SuccessSubscription
+          - 
+            - Protocol: email
+              Endpoint: !Ref SuccessEmailSubscription
+          - !Ref "AWS::NoValue"
+    PipelineSuccessSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        Topics:
+          - !Ref PipelineSuccessSNSTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: 'sns:Publish'
+              Resource: !Ref PipelineSuccessSNSTopic
+              Principal:
+                Service:
+                  - codestar-notifications.amazonaws.com
+    PipelineFailSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !Sub '${AppCode}-pipeline-failure-sns-topic'
+        TopicName: !Sub '${AppCode}-pipeline-failure-sns-topic'
+        Subscription:
+          !If
+          - FailureSubscription
+          - 
+            - Protocol: email
+              Endpoint: !Ref FailureEmailSubscription
+          - !Ref "AWS::NoValue"
+    PipelineFailSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        Topics:
+          - !Ref PipelineFailSNSTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: 'sns:Publish'
+              Resource: !Ref PipelineFailSNSTopic
+              Principal:
+                Service:
+                  - codestar-notifications.amazonaws.com

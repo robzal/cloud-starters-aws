@@ -14,5 +14,11 @@ set_aws_creds $1 $3 $4
 
 echo "Deploying Pipeline Stack into Primary Region."
 
-deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-pipeline cicd/pipeline.yaml cicd/pipeline.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
-
+# Pipeline itself deployed to primary region in DevOps account only
+if [[ ${AWS_ACCOUNT_ID} == ${DEVOPS_ACCOUNT} ]]; then 
+    deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-pipeline cicd/pipeline.yaml cicd/pipeline.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+fi
+# Deployment Role deployed to primary region in any chosen account
+if [[ -n "$DEPLOYMENT_ROLE_ARN" ]]; then
+    deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-deployment-role cicd/pipeline-deployment-role.yaml cicd/pipeline-deployment-role.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+fi
