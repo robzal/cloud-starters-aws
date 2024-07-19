@@ -17,6 +17,7 @@ echo "Deploying Stacks into Primary Region."
 
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-mysql-instance cfn/rds-mysql.yaml cfn/rds-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-aurora-mysql-cluster cfn/rds-aurora-mysql.yaml cfn/rds-aurora-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-aurora-postgres-cluster cfn/rds-aurora-postgres.yaml cfn/rds-aurora-postgres.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 deploy_stack $1 $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-dms-simple cfn/dms-simple.yaml cfn/dms-simple.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
 
 # SECONDARY_REGIONS
@@ -30,6 +31,7 @@ else
         load_env $r $2
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-mysql-instance cfn/rds-mysql.yaml cfn/rds-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-aurora-mysql-cluster cfn/rds-aurora-mysql.yaml cfn/rds-aurora-mysql.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
+        deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-aurora-postgres-cluster cfn/rds-aurora-postgres.yaml cfn/rds-aurora-postgres.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
         deploy_stack $r $AWS_PROFILE ${APP_CODE}-${ENVIRONMENT}-dms-simple cfn/dms-simple.yaml cfn/dms-simple.params ${CLOUDFORMATION_BUCKET} ${APP_CODE} ${CHANGESET_OPTION}  
     done
 fi

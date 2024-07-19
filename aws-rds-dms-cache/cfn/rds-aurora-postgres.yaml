@@ -16,7 +16,7 @@ Parameters:
   DBEngine:
     Description: Database Engine
     Type: String
-    Default: mysql
+    Default: aurora-postgresql
   DBEngineVersion:
     Description: Select Database Engine Version
     Type: String
@@ -28,15 +28,15 @@ Parameters:
   DBClusterIdentifier:
     Description: DB Cluster Name
     Type: String
-    Default: auroroa-mysql-cluster
+    Default: auroroa-postgres-cluster
   DBInstanceIdentifier:
     Description: DB Instance Name
     Type: String
-    Default: mysql-instance
+    Default: postgres-instance
   DBName:
     Description: Select Database Name
     Type: String
-    Default: mysqldb
+    Default: postgresdb
   DBPort:
     Description: TCP/IP Port for the Database Instance
     Type: Number
@@ -107,6 +107,13 @@ Parameters:
       - "true"
       - "false"
     Default: "true"
+  EnableRDSProxy:
+    Type: String
+    Description: "Specify whether to attach an RDS Proxy to the RDS cluster"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
   EnableDeletionProtection:
     Type: String
     Description: "Specify whether to enable RDS instance deletion protection"
@@ -179,6 +186,7 @@ Conditions:
     DoEncryption: !Not [!Equals [!Ref StorageEncrypted, "false"]]
     DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
     DoServerless: !Equals [!Ref DBInstanceClass, "db.serverless"]
+    DoRDSProxy: !Equals [!Ref EnableRDSProxy, "true"]
     DoSecondary: !Equals [!Ref EnableSecondaryInstance, "true"]
     IsPrimaryRegion: !Equals 
         - !Ref PrimaryRegion
@@ -188,7 +196,7 @@ Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupName: !Sub ${AppCode}-${Environment}-rds-aurora-mysql-subnetgroup
+      DBSubnetGroupName: !Sub ${AppCode}-${Environment}-rds-aurora-postgres-subnetgroup
       DBSubnetGroupDescription: Database subnet group
       SubnetIds:
         - !Ref InstanceSubnet1
@@ -196,11 +204,11 @@ Resources:
         - !Ref InstanceSubnet3
       Tags:
       - Key: Name
-        Value: !Sub ${AppCode}-${Environment}-rds-aurora-mysql-instance-subnetgroup
+        Value: !Sub ${AppCode}-${Environment}-rds-aurora-postgres-instance-subnetgroup
   DBInstanceSecurityGroup:
       Type: 'AWS::EC2::SecurityGroup'
       Properties:
-          GroupName: !Sub '${AppCode}-${Environment}-rds-aurora-mysql-SG'
+          GroupName: !Sub '${AppCode}-${Environment}-rds-aurora-postgres-SG'
           GroupDescription: Enable DB requests through to RDS
           VpcId: !Ref VPCID
           SecurityGroupIngress:
@@ -237,9 +245,7 @@ Resources:
       BackupRetentionPeriod: !Ref BackupRetentionPeriod
       CopyTagsToSnapshot: true
       EnableCloudwatchLogsExports: 
-      - audit
-      - error
-      - general
+      - postgresql
       EnableIAMDatabaseAuthentication: !Ref EnableIAMAuthentication
       # AssociatedRoles:
       #   - FeatureName: s3Import
@@ -291,6 +297,69 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub "${AppCode}-${Environment}-${DBClusterIdentifier}-${DBInstanceIdentifier}-2"
+
+  DBProxySecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Condition: DoRDSProxy
+    Properties:
+      Name: !Sub '${AppCode}-${Environment}-rds-proxy-secret'
+      Description: This secret has a hardcoded password in SecretString (use GenerateSecretString instead)
+      SecretString: '{"username":"MasterUsername","password":"secret-password"}'
+  DBProxyRole:
+    Type: AWS::IAM::Role
+    Condition: DoRDSProxy
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-rds-proxy-role'
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['rds.amazonaws.com']
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:*'
+                  - 'kms:DescribeKey'
+                  - 'kms:ListAliases'
+                  - 'kms:ListKeys'
+                Resource: '*'
+  DBProxy:
+    Type: AWS::RDS::DBProxy
+    Condition: DoRDSProxy
+    Properties:
+      DebugLogging: true
+      DBProxyName: !Sub '${AppCode}-${Environment}-rds-proxy'
+      EngineFamily: POSTGRESQL 
+      IdleClientTimeout: 120
+      RequireTLS: true
+      RoleArn:
+        !GetAtt DBProxyRole.Arn
+      Auth:
+        - {AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: DISABLED}
+        # - {AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: REQUIRED}
+      VpcSubnetIds:
+        - !Ref InstanceSubnet1
+        - !Ref InstanceSubnet2
+        - !Ref InstanceSubnet3
+      VpcSecurityGroupIds:
+        - !Ref DBInstanceSecurityGroup
+  DBProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Condition: DoRDSProxy
+    Properties:
+      DBProxyName: !Ref DBProxy
+      DBClusterIdentifiers: [!Ref DBCluster]
+      TargetGroupName: default
+      ConnectionPoolConfigurationInfo:
+          MaxConnectionsPercent: 100
+          MaxIdleConnectionsPercent: 50
+          ConnectionBorrowTimeout: 120
 
   # Route53:
   #         Type: AWS::Route53::RecordSetGroup
