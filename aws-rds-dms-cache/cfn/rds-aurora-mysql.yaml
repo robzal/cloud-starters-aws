@@ -241,11 +241,6 @@ Resources:
       - error
       - general
       EnableIAMDatabaseAuthentication: !Ref EnableIAMAuthentication
-      # AssociatedRoles:
-      #   - FeatureName: s3Import
-      #     RoleArn: 'arn:aws:iam::123456789012:role/RDSLoadFromS3'
-      #   - FeatureName: s3Export
-      #     RoleArn: 'arn:aws:iam::123456789012:role/RDSLoadFromS3'
       ServerlessV2ScalingConfiguration:
         !If
         - DoServerless

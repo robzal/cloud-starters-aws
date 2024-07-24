@@ -21,6 +21,7 @@ MaxServerlessScaling=${DB_CLUSTER_MAX_SERVERLESS_SCALING_POSTGRES}
 EnableSecondaryInstance=${ENABLE_SECONDARY_INSTANCE}
 EnableIAMAuthentication=${ENABLE_IAM_AUTHENTICATION}
 EnableRDSProxy=${ENABLE_RDS_PROXY}
+EnableRDSProxyIAMAuth=${ENABLE_RDS_PROXY_IAM}
 EnableDeletionProtection=${DELETE_PROTECTION}
 DeleteAutomatedBackups=${DB_BACKUP_AUTO_DELETE}
 BackupRetentionPeriod=${DB_BACKUP_DAYS_KEEP}

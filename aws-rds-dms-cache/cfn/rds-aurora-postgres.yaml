@@ -1,7 +1,7 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
-  This template provisions a simple demo Aurora Mysql Cluster. There are many more parameters available and production deployments should be designed to include some of these
+  This template provisions a simple demo Aurora Postgres Cluster and optional RDS Proxy. There are many more parameters available and production deployments should be designed to include some of these
 
 Parameters:
   AppCode:
@@ -114,6 +114,13 @@ Parameters:
       - "true"
       - "false"
     Default: "false"
+  EnableRDSProxyIAMAuth:
+    Type: String
+    Description: "Specify whether to add IAM DB authentication to the RDS Proxy"
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
   EnableDeletionProtection:
     Type: String
     Description: "Specify whether to enable RDS instance deletion protection"
@@ -187,6 +194,7 @@ Conditions:
     DoDNS: !Not [!Equals [!Ref DNSAliasHost, ""]]
     DoServerless: !Equals [!Ref DBInstanceClass, "db.serverless"]
     DoRDSProxy: !Equals [!Ref EnableRDSProxy, "true"]
+    DoRDSProxyIAM: !Equals [!Ref EnableRDSProxyIAMAuth, "true"]
     DoSecondary: !Equals [!Ref EnableSecondaryInstance, "true"]
     IsPrimaryRegion: !Equals 
         - !Ref PrimaryRegion
@@ -224,9 +232,64 @@ Resources:
           SecurityGroupEgress:
               - IpProtocol: '-1'
                 CidrIp: 0.0.0.0/0
+  DBClusterRoleImport:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-rds-cluster-role-import'
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['rds.amazonaws.com']
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: S3ImportExport
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: 
+                  - !Sub arn:aws:s3:::${AWS::AccountId}-data-bucket
+                  - !Sub arn:aws:s3:::${AWS::AccountId}-data-bucket/*           
+  DBClusterRoleExport:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AppCode}-${Environment}-rds-cluster-role-export'
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['rds.amazonaws.com']
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: S3ImportExport
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: 
+                  - !Sub arn:aws:s3:::${AWS::AccountId}-data-bucket
+                  - !Sub arn:aws:s3:::${AWS::AccountId}-data-bucket/*           
+  DBClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/rds/cluster/${AppCode}-${Environment}-${DBClusterIdentifier}/postgresql'
+      RetentionInDays: 14
   DBCluster:
     Type: AWS::RDS::DBCluster
-    DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup]
+    DependsOn: [DBSubnetGroup, DBInstanceSecurityGroup,DBClusterLogGroup]
     Properties:
       DBClusterIdentifier: !Sub '${AppCode}-${Environment}-${DBClusterIdentifier}'
       DBSubnetGroupName: !Ref DBSubnetGroup
@@ -247,11 +310,11 @@ Resources:
       EnableCloudwatchLogsExports: 
       - postgresql
       EnableIAMDatabaseAuthentication: !Ref EnableIAMAuthentication
-      # AssociatedRoles:
-      #   - FeatureName: s3Import
-      #     RoleArn: 'arn:aws:iam::123456789012:role/RDSLoadFromS3'
-      #   - FeatureName: s3Export
-      #     RoleArn: 'arn:aws:iam::123456789012:role/RDSLoadFromS3'
+      AssociatedRoles:
+        - FeatureName: s3Import
+          RoleArn: !GetAtt DBClusterRoleImport.Arn
+        - FeatureName: s3Export
+          RoleArn: !GetAtt DBClusterRoleExport.Arn
       ServerlessV2ScalingConfiguration:
         !If
         - DoServerless
@@ -329,9 +392,16 @@ Resources:
                   - 'kms:ListAliases'
                   - 'kms:ListKeys'
                 Resource: '*'
+  DBProxyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: DoRDSProxy
+    Properties:
+      LogGroupName: !Sub '/aws/rds/proxy/${AppCode}-${Environment}-rds-proxy'
+      RetentionInDays: 14
   DBProxy:
     Type: AWS::RDS::DBProxy
     Condition: DoRDSProxy
+    DependsOn: [DBProxyLogGroup]
     Properties:
       DebugLogging: true
       DBProxyName: !Sub '${AppCode}-${Environment}-rds-proxy'
@@ -341,8 +411,7 @@ Resources:
       RoleArn:
         !GetAtt DBProxyRole.Arn
       Auth:
-        - {AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: DISABLED}
-        # - {AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: REQUIRED}
+        - !If [DoRDSProxyIAM,{AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: REQUIRED} , {AuthScheme: SECRETS, SecretArn: !Ref DBProxySecret, IAMAuth: DISABLED}]
       VpcSubnetIds:
         - !Ref InstanceSubnet1
         - !Ref InstanceSubnet2
