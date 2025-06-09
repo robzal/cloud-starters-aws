@@ -271,7 +271,7 @@ Resources:
         - !Ref UtilsLayer
         - !Ref ModelsLayer
       Handler: lambda.handler
-      Runtime: python3.11
+      Runtime: python3.12
       MemorySize: 128
       Timeout: 10
       Tracing: 'Active'
@@ -322,7 +322,7 @@ Resources:
         - !Ref UtilsLayer
         - !Ref ModelsLayer
       Handler: lambda.handler
-      Runtime: python3.11
+      Runtime: python3.12
       MemorySize: 128
       Timeout: !Ref ProcessLambdaTimeoutSecs
       Tracing: 'Active'
@@ -365,20 +365,20 @@ Resources:
       Description: !Sub 'Layer for utils "'
       ContentUri: ../src/layers/utils/python/
       CompatibleRuntimes:
-        - 'python3.11'
+        - 'python3.12'
       LayerName: !Sub '${AppCode}-${Environment}-sam-Utils-Layer'
     Metadata:
-      BuildMethod: python3.11   # Required to have AWS SAM build this layer
+      BuildMethod: python3.12   # Required to have AWS SAM build this layer
   ModelsLayer:
     Type: 'AWS::Serverless::LayerVersion'
     Properties:
       Description: !Sub 'Layer for models "'
       ContentUri: ../src/layers/models/python/
       CompatibleRuntimes:
-        - 'python3.11'
+        - 'python3.12'
       LayerName: !Sub '${AppCode}-${Environment}-sam-Models-Layer'
     Metadata:
-      BuildMethod: python3.11   # Required to have AWS SAM build this layer
+      BuildMethod: python3.12   # Required to have AWS SAM build this layer
 
   ProcessQueueStateMachineExecutionRole:
     Type: 'AWS::IAM::Role'
@@ -627,7 +627,7 @@ Resources:
     Properties:
       FunctionName: !Sub '${AppCode}-${Environment}-sam-FileAPIFunction'
       Handler: 'lambda.handler'
-      Runtime: 'python3.11'
+      Runtime: 'python3.12'
       CodeUri: '../src/functions/file-api/'
       MemorySize: 128
       Timeout: 10

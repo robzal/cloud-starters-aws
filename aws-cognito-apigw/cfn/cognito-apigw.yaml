@@ -144,7 +144,7 @@ Resources:
     DependsOn: DemoApiLambdaLogGroup
     Properties:
       FunctionName: !Sub ${AppCode}-${Environment}-Demo-API-Function
-      Runtime: "python3.11"
+      Runtime: "python3.12"
       Handler: "lambda.handler"
       Role: !GetAtt DemoApiIAMRole.Arn
       Code:
@@ -242,7 +242,7 @@ Resources:
     DependsOn: ApiAuthorizerLambdaLogGroup
     Properties:
       FunctionName: !Sub "${AppCode}-${Environment}-ApiAuthorizer-Lambda"
-      Runtime: "python3.11"
+      Runtime: "python3.12"
       Handler: "lambda.handler"
       Role: !GetAtt ApiAuthorizerLambdaIAMRole.Arn
       Code:

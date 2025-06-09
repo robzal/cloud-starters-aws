@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Creates a single ECR repo with trust policy
+Description: Creates an S3 bucket for init Cloudformation templates
 Parameters:
   BucketName:
       Description: Name for the Bucket
@@ -12,6 +12,6 @@ Resources:
       BucketName: !Ref BucketName
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: InitBucketRule
             Status: Enabled
             ExpirationInDays: 7

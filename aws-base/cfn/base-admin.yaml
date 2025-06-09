@@ -32,6 +32,10 @@ Parameters:
     Description: Name of S3 Bucket used for Code Deployments.
     Type: String
     Default: "238160719262-deployments"
+  PipelineRoleSuffix:
+    Type: String
+    Default: CodePipeline-Role
+    Description: Suffix for IAM Pipeline role being used
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources (all of these)
     Type: String
@@ -155,7 +159,7 @@ Resources:
         - !Ref "AWS::NoValue"
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: LoggingBucketRule
             Status: Enabled
             ExpirationInDays: 30
   LoggingBucketPolicy:
@@ -209,7 +213,7 @@ Resources:
         LogFilePrefix: !Sub S3AccessLogs/${CloudformationBucketName}/
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: CloudformationBucketRule
             Status: Enabled
             ExpirationInDays: 7
   CloudformationBucketPolicy: 

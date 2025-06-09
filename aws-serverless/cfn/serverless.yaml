@@ -290,7 +290,7 @@ Resources:
         - !Ref ModelsLayer
       Handler: lambda.handler
       Role: !GetAtt   ControlSFNFunctionIAMRole.Arn
-      Runtime: python3.11
+      Runtime: python3.12
       MemorySize: 128
       Timeout: 10
       Environment:
@@ -360,7 +360,7 @@ Resources:
         - !Ref ModelsLayer
       Handler: lambda.handler
       Role: !GetAtt ProcessSQSFunctionIAMRole.Arn
-      Runtime: python3.11
+      Runtime: python3.12
       MemorySize: 128
       Timeout: !Ref ProcessLambdaTimeoutSecs
       Environment:
@@ -423,7 +423,7 @@ Resources:
         - !Ref ModelsLayer
       Handler: lambda.handler
       Role: !GetAtt FileAPIFunctionIAMRole.Arn
-      Runtime: python3.11
+      Runtime: python3.12
       MemorySize: 128
       Timeout: 10
       Environment:
@@ -463,8 +463,8 @@ Resources:
         S3Bucket: !Ref LambdaBucket
         S3Key: !Ref UtilsLayerBucketKey
       CompatibleRuntimes:
-        - python3.10
         - python3.11
+        - python3.12
   ModelsLayer:
     Type: 'AWS::Lambda::LayerVersion'
     Properties:
@@ -473,8 +473,8 @@ Resources:
         S3Bucket: !Ref LambdaBucket
         S3Key: !Ref ModelsLayerBucketKey
       CompatibleRuntimes:
-        - python3.10
         - python3.11
+        - python3.12
 
   ProcessQueueStateMachineExecutionRole:
     Type: 'AWS::IAM::Role'

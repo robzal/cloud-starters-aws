@@ -132,7 +132,7 @@ Resources:
         LogFilePrefix: !Sub S3AccessLogs/${PipelineBucketName}/
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: PipelineBucketRule
             Status: Enabled
             ExpirationInDays: 7
   PipelineBucketPolicy: 

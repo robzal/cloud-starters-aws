@@ -151,7 +151,7 @@ Resources:
         LogFilePrefix: !Sub S3AccessLogs/${CloudtrailBucketName}/
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: CloudtrailBucketRule
             Status: Enabled
             ExpirationInDays: 30
   CloudTrailBucketPolicy:
@@ -189,7 +189,7 @@ Resources:
         LogFilePrefix: !Sub S3AccessLogs/${ConfigBucketName}/
       LifecycleConfiguration:
         Rules:
-          - Id: PipelineRule
+          - Id: ConfigBucketRule
             Status: Enabled
             ExpirationInDays: 30
   ConfigBucketPolicy:
@@ -391,7 +391,7 @@ Resources:
               });
           }
       Handler: index.handler
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Timeout: '60'
       Role: !GetAtt [ConfigCustomLambdaExecutionRole, Arn]
   ConfigCustomLambdaExecutionRole:

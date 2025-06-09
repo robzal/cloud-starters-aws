@@ -382,6 +382,7 @@ Resources:
             Action:
               - 's3:*'
             Resource:
+              - 'arn:aws:s3:::*'
               - 'arn:aws:s3:::*/*'
       RouteTableIds:
         - !Ref PublicRouteTable

@@ -5,4 +5,5 @@ EnableKMSEncryption=${ENABLE_ADMIN_KMS_ENCRYPTION}
 LoggingBucketName=${LOGGING_BUCKET_NAME}
 CloudformationBucketName=${CLOUDFORMATION_BUCKET_NAME}
 DeploymentBucketName=${DEPLOYMENT_BUCKET_NAME}
+PipelineRoleSuffix=${PIPELINE_ROLE_SUFFIX}
 PrimaryRegion=${PRIMARY_REGION}
