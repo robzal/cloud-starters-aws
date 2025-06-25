@@ -1,0 +1,4 @@
+# Include JavaScript Lambda handlers
+!index.js
+cdk.out
+node_modules
