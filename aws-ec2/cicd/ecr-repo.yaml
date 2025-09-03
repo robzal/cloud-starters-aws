@@ -30,3 +30,13 @@ Resources:
               - "ecr:InitiateLayerUpload"
               - "ecr:UploadLayerPart"
               - "ecr:CompleteLayerUpload"
+              - "ecr:GetRepositoryPolicy"
+              - "ecr:SetRepositoryPolicy"
+          - 
+            Sid: LambdaECRLambdaPolicy
+            Effect: Allow
+            Principal: 
+              Service: "lambda.amazonaws.com"
+            Action: 
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"

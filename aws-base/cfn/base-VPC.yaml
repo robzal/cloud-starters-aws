@@ -25,6 +25,11 @@ Parameters:
     Type: String
     Default: false
     AllowedValues: [true, false]
+  CreateVPCInterfaces:
+    Description: Create VPCE Interfaces. These have hourly costs so allowing toggling off.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
   LoggingBucketName:
     Description: Name of S3 Bucket used for Flow Logs.
     Type: String
@@ -49,6 +54,14 @@ Parameters:
     Description: CSV list of accounts to Allow to assume the Peering Role.
     Type: CommaDelimitedList
     Default: "238160719262,967792619409,271005954527,470368177909,101526008094"
+  VPCEService1:
+    Description: Service address for VPCE Interface1.
+    Type: String
+    Default: "com.amazonaws.ap-southeast-2.states"
+  VPCEService2:
+    Description: Service address for VPCE Interface2.
+    Type: String
+    Default: "com.amazonaws.ap-southeast-2.kms"
   PrimaryRegion:
     Description: Primary Region ID to detect where to deploy account wide resources
     Type: String
@@ -63,6 +76,8 @@ Conditions:
     !Equals [true, !Ref CreateVPCPeeringRole]
   ShouldCreatePeeringConnection:
     !Equals [true, !Ref CreateVPCPeeringConnection]
+  ShouldCreateVPCInterfaces:
+    !Equals [true, !Ref CreateVPCInterfaces]
 
 Resources:
   VPC:
@@ -384,6 +399,8 @@ Resources:
             Resource:
               - 'arn:aws:s3:::*'
               - 'arn:aws:s3:::*/*'
+              - 'arn:aws:s3:${AWS::Region}:${AWS::AccountId}:accesspoint/*'
+              - 'arn:aws:s3:${AWS::Region}:${AWS::AccountId}:accesspoint/*/object/*'
       RouteTableIds:
         - !Ref PublicRouteTable
         - !Ref PrivateRouteTableAZ1
@@ -409,18 +426,32 @@ Resources:
       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.dynamodb'
       VpcId: !Ref VPC
 
-  # EC2Gateway:
-  #   Type: 'AWS::EC2::VPCEndpoint'
-  #   Properties:
-  #     VpcEndpointType: Interface
-  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
-  #     VpcId: !Ref VPC
-  #     SubnetIds:
-  #       - !Ref PrivateSubnetAZ1
-  #       - !Ref PrivateSubnetAZ2
-  #       - !Ref PrivateSubnetAZ3
-  #     SecurityGroupIds:
-  #       - !Ref AdminSecurityGroup
+  VPCInterface1:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Condition: ShouldCreateVPCInterfaces
+    Properties:
+      VpcEndpointType: Interface
+      ServiceName: !Ref VPCEService1
+      VpcId: !Ref VPC
+      SubnetIds:
+        - !Ref PublicSubnetAZ1
+        - !Ref PublicSubnetAZ2
+        - !Ref PublicSubnetAZ3
+      SecurityGroupIds:
+        - !Ref AdminSecurityGroup
+  VPCInterface2:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Condition: ShouldCreateVPCInterfaces
+    Properties:
+      VpcEndpointType: Interface
+      ServiceName: !Ref VPCEService2
+      VpcId: !Ref VPC
+      SubnetIds:
+        - !Ref PublicSubnetAZ1
+        - !Ref PublicSubnetAZ2
+        - !Ref PublicSubnetAZ3
+      SecurityGroupIds:
+        - !Ref AdminSecurityGroup
 
   # For peering, the network account will create the peering role
   # and other accounts will create a peering connection to it

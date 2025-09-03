@@ -136,6 +136,14 @@ build_layers () {
         fi
         rm -rf $B_DIR/$d/*
         mkdir $B_DIR/$d/python
+        if [ -f $F_DIR/$d/requirements.txt ] 
+        then
+            pip3 install -t $B_DIR/$d -r $F_DIR/$d/requirements.txt
+        fi
+        # if [ -f $F_DIR/$d/python/*.py ] 
+        # then
+        #     cp $F_DIR/$d/python/*.py $B_DIR/$d/python
+        # fi
         cp $F_DIR/$d/python/*.py $B_DIR/$d/python
         if [ -f $P_DIR/layers/$d-*.zip ] 
         then
@@ -157,8 +165,8 @@ build_docker () {
         cat $D_DIR/$d/build.params | sed 's/\r//g' | sed 's/\n//g' > .params.tmp
         envsubst < .params.tmp > .params
 
-        echo docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/Dockerfile $(cat .params) .
-        docker build -t $IMAGE_NAME:$VERSION -f $D_DIR/$d/Dockerfile $(cat .params) .
+        echo docker build -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest -f $D_DIR/$d/Dockerfile $(cat .params) .
+        docker build -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest -f $D_DIR/$d/Dockerfile $(cat .params) .
     done
 }
 
@@ -306,7 +314,7 @@ create_init_bucket () {
                 set -e
                 aws cloudformation deploy \
                     --template-file ./cicd/s3-bucket.yaml \
-                    --stack-name cfn-init-$3 \
+                    --stack-name base-cfn-init \
                     --parameter-overrides BucketName=$3 \
                     --region $1 \
                     --profile $2
