@@ -27,7 +27,7 @@ echo "Patching Config Map VPC."
 kube_manifest_apply ./k8s/aws-configmap-vpc-windows.yaml .k8s-aws-configmap-vpc-windows.yaml
 
 echo "Setting up EBS CSI Driver."
-kube_kustomization_apply "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=master"
+kube_kustomization_apply "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=release-$EKS_CLUSTER_VERSION"
 
 ## Using auth reconcile rather than apply is best practice for K8S Roles and Role bindings.
 echo "Setting Up Cluster RoleBindings."
@@ -37,7 +37,11 @@ echo "Setting Up Load Balancer Service Account."
 kube_manifest_apply ./k8s/aws-load-balancer-service-account.yaml .k8s-aws-load-balancer-service-account.yaml
 
 echo "Setting Up Cert Manager."
-kube_manifest_apply ./k8s/cert-manager_1_5_0.yaml .k8s-cert-manager_1_5_0.yaml --validate=false
+# Check if you have the correct cert-manager manifest
+# https://github.com/cert-manager/cert-manager/tags
+# kube_manifest_apply ./k8s/cert-manager_1_13_5.yaml .k8s-cert-manager_1_13_5.yaml --validate=true
+# kube_manifest_apply ./k8s/cert-manager_1_16_5.yaml .k8s-cert-manager_1_16_5.yaml --validate=true
+kube_manifest_apply ./k8s/cert-manager_1_18_2.yaml .k8s-cert-manager_1_18_2.yaml --validate=true
 
 echo "Waiting for Cert Manager to initialise."
 sleep 300
@@ -45,5 +49,5 @@ sleep 300
 echo "Adding the load bal controller (already modified as per AWS doco)"
 #https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
 #https://docs.aws.amazon.com/eks/latest/userguide/lbc-manifest.html
-kube_manifest_apply ./k8s/aws-load-balancer-2_7_2_full.yaml .k8s-aws-load-balancer-2_7_2_full.yaml --validate=false
-kube_manifest_apply ./k8s/aws-load-balancer-2_7_2_ingclass.yaml .k8s-aws-load-balancer-2_7_2_ingclass.yaml --validate=false
+kube_manifest_apply ./k8s/aws-load-balancer-2_13_3_full.yaml .k8s-aws-load-balancer-2_13_3_full.yaml --validate=false
+kube_manifest_apply ./k8s/aws-load-balancer-2_13_3_ingclass.yaml .k8s-aws-load-balancer-2_13_3_ingclass.yaml --validate=false

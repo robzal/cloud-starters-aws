@@ -16,13 +16,13 @@ Parameters:
     Description: The desired name of your AWS EKS Cluster.
   EKSClusterVersion:
     Type: String
-    Default: 1.29
+    Default: 1.33
     AllowedValues: 
-      - 1.26
-      - 1.27
-      - 1.28
       - 1.29
       - 1.30
+      - 1.31
+      - 1.32
+      - 1.33
     Description: The desired version of your AWS EKS Cluster.
   EKSClusterSubnets:
     Type: CommaDelimitedList
@@ -72,6 +72,10 @@ Parameters:
     Type: "String"
     Default: "ami-1234567"
     Description: The AMI ID to use for linux nodes.
+  EKSLinuxNodesAMIType:
+    Type: "String"
+    Default: "AL2023_x86_64_STANDARD"
+    Description: The AMI type to use for linux node groups.
   EKSLinuxNodesVolume1Size:
     Type: String
     Default: 30
@@ -100,6 +104,10 @@ Parameters:
     Type: "String"
     Default: "ami-1234567"
     Description: The AMI ID to use for windows nodes.
+  EKSWindowsNodesAMIType:
+    Type: "String"
+    Default: "WINDOWS_CORE_2022_x86_64"
+    Description: The AMI type to use for windows node groups.
   EKSWindowsNodesVolume1Size:
     Type: String
     Default: 30
@@ -204,6 +212,7 @@ Resources:
             - ec2:DescribeAvailabilityZones
             - ec2:DescribeInternetGateways
             - ec2:DescribeVpcs
+            - ec2:DescribeVpcPeeringConnections
             - ec2:DescribeSubnets
             - ec2:DescribeSecurityGroups
             - ec2:DescribeInstances
@@ -211,6 +220,9 @@ Resources:
             - ec2:DescribeTags
             - ec2:GetCoipPoolUsage
             - ec2:DescribeCoipPools
+            - ec2:GetSecurityGroupsForVpc
+            - ec2:DescribeIpamPools
+            - ec2:DescribeRouteTables
             - elasticloadbalancing:DescribeLoadBalancers
             - elasticloadbalancing:DescribeLoadBalancerAttributes
             - elasticloadbalancing:DescribeListeners
@@ -221,6 +233,9 @@ Resources:
             - elasticloadbalancing:DescribeTargetGroupAttributes
             - elasticloadbalancing:DescribeTargetHealth
             - elasticloadbalancing:DescribeTags
+            - elasticloadbalancing:DescribeTrustStores
+            - elasticloadbalancing:DescribeListenerAttributes
+            - elasticloadbalancing:DescribeCapacityReservation
             Resource: "*"
           - Effect: Allow
             Action:
@@ -324,6 +339,10 @@ Resources:
             - elasticloadbalancing:ModifyTargetGroup
             - elasticloadbalancing:ModifyTargetGroupAttributes
             - elasticloadbalancing:DeleteTargetGroup
+            - elasticloadbalancing:ModifyListenerAttributes
+            - elasticloadbalancing:ModifyCapacityReservation
+            - elasticloadbalancing:ModifyIpPools
+            - elasticloadbalancing:AddTags
             Resource: "*"
             # Condition:
             #   'Null':
@@ -340,6 +359,7 @@ Resources:
             - elasticloadbalancing:AddListenerCertificates
             - elasticloadbalancing:RemoveListenerCertificates
             - elasticloadbalancing:ModifyRule
+            - elasticloadbalancing:SetRulePriorities
             Resource: "*"
 
   EKSClusterLogGroup:
@@ -384,9 +404,10 @@ Resources:
               - "sts:AssumeRole"
       RoleName: !Ref EKSNodeInstanceRoleName
       ManagedPolicyArns:
-        - !Sub "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-        - !Sub "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-        - !Sub "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
       Path: /
   EKSNodeInstanceProfile:
     Type: "AWS::IAM::InstanceProfile"
@@ -400,7 +421,7 @@ Resources:
       ClusterName: !Ref EKSClusterName
       NodeRole: 
         "Fn::GetAtt": ["EKSNodeInstanceRole", "Arn"]
-      AmiType: AL2_x86_64
+      AmiType: !Ref EKSLinuxNodesAMIType
       InstanceTypes: 
         - !Ref EKSLinuxNodesInstanceType
       NodegroupName: !Ref EKSLinuxNodeGroupName
