@@ -39,8 +39,6 @@ kube_manifest_apply ./k8s/aws-load-balancer-service-account.yaml .k8s-aws-load-b
 echo "Setting Up Cert Manager."
 # Check if you have the correct cert-manager manifest
 # https://github.com/cert-manager/cert-manager/tags
-# kube_manifest_apply ./k8s/cert-manager_1_13_5.yaml .k8s-cert-manager_1_13_5.yaml --validate=true
-# kube_manifest_apply ./k8s/cert-manager_1_16_5.yaml .k8s-cert-manager_1_16_5.yaml --validate=true
 kube_manifest_apply ./k8s/cert-manager_1_18_2.yaml .k8s-cert-manager_1_18_2.yaml --validate=true
 
 echo "Waiting for Cert Manager to initialise."
