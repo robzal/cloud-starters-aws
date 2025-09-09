@@ -1,0 +1,10 @@
+AppCode=${APP_CODE}
+PipelineBucketKMSKeyAlias=${PIPELINE_KMS_KEY_ALIAS}
+DevOpsAccountID=${DEVOPS_ACCOUNT}
+DeploymentAccountIds=${DEPLOYMENT_ACCOUNTS}
+PipelineRoles=${CODE_PIPELINE_ROLES}
+LoggingBucketName=${LOGGING_BUCKET_NAME}
+PipelineBucketName=${PIPELINE_BUCKET_NAME}
+BuildBucketName=${BUILD_BUCKET_NAME}
+EnableDevOps=${ENABLE_DEVOPS}
+PrimaryRegion=${PRIMARY_REGION}

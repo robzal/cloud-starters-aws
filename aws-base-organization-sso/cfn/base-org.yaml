@@ -1,0 +1,191 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates basic AWS Org structure
+Parameters:
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  EnableSCP:
+    Description: Enable SCP Policies and Create / Attach policies to OUs
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - 'true'
+      - 'false'
+  LambdaBucket:
+      Type: String
+      Default: 690602919686-deployments
+      Description: S3 Bucket for lambda code bundles
+  SCPEnableFunctionBucketKey:
+      Type: String
+      Default: scp_enable_policies/scp_enable_policies-1.0.0.zip
+      Description: scp enable policies function code bundle key.
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources (all of these)
+    Type: String
+    Default: "ap-southeast-2"
+ 
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  CreateSCP: !Equals 
+    - !Ref EnableSCP
+    - 'true'
+
+Resources:
+  Organization:
+    DeletionPolicy: Retain
+    Type: 'AWS::Organizations::Organization'
+    Properties:
+      FeatureSet: ALL
+
+  SCPEnableRole:
+    Type: AWS::IAM::Role
+    Condition: CreateSCP
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Sub "${AppCode}-SCPEnable-Role"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSOrganizationsFullAccess"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Path: /
+  SCPEnableFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Condition: CreateSCP
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-SCPEnable-Function'
+      RetentionInDays: 14
+  SCPEnableFunction:
+    Type: AWS::Lambda::Function 
+    Condition: CreateSCP
+    DependsOn: SCPEnableFunctionLogGroup
+    Properties:
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref SCPEnableFunctionBucketKey
+      Role: !GetAtt SCPEnableRole.Arn
+      Handler: lambda.handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      FunctionName: !Sub '${AppCode}-SCPEnable-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+          ROOT_ID: !GetAtt Organization.RootId
+  SCPEnablePolicies:
+    Type: Custom::SCPEnableFunction
+    Condition: CreateSCP
+    DependsOn: SCPEnableFunction
+    Properties:
+      ServiceToken: !GetAtt SCPEnableFunction.Arn
+
+  ProdOU:
+    Type: 'AWS::Organizations::OrganizationalUnit'
+    Properties:
+      Name: ProdOU
+      ParentId: !GetAtt Organization.RootId
+  NonProdOU:
+    Type: 'AWS::Organizations::OrganizationalUnit'
+    Properties:
+      Name: NonProdOU
+      ParentId: !GetAtt Organization.RootId
+  MgmtOU:
+    Type: 'AWS::Organizations::OrganizationalUnit'
+    Properties:
+      Name: MgmtOU
+      ParentId: !GetAtt Organization.RootId
+
+  RootPolicy:
+    Type: AWS::Organizations::Policy
+    DependsOn: SCPEnablePolicies
+    Condition: CreateSCP
+    Properties:
+      Type: SERVICE_CONTROL_POLICY
+      Name: SCPRootDenyPolicies
+      TargetIds:
+        - !GetAtt Organization.RootId
+      Content:
+        Version: 2012-10-17
+        Statement:
+          - Sid: SCPDenyBillingUpdates
+            Effect: Deny
+            Action:
+              - "account:PutContactInformation"
+              - "account:PutChallengeQuestions"
+              - "account:PutAlternateContact"
+              - "account:DeleteAlternateContact"
+              - "account:CloseAccount"
+              - "billing:UpdateBillingPreferences"
+              - "billing:PutContractInformation"
+              - "billing:UpdateIAMAccessPreference"
+              - "invoicing:PutInvoiceEmailDeliveryPreferences"
+              - "payments:DeletePaymentInstrument"
+              - "payments:UpdatePaymentPreferences"
+              - "tax:BatchPutTaxRegistration"
+              - "tax:DeleteTaxRegistration"
+              - "tax:PutTaxInheritance"
+            Resource: '*'
+            Condition:
+              ArnNotLike:
+                aws:PrincipalArn: "arn:aws:iam::${Account}:root"
+  ProdPolicy:
+    Type: AWS::Organizations::Policy
+    DependsOn: SCPEnablePolicies
+    Condition: CreateSCP
+    Properties:
+      Type: SERVICE_CONTROL_POLICY
+      Name: SCPProdDenyPolicies
+      TargetIds:
+        - !GetAtt ProdOU.Id
+      Content:
+        Version: 2012-10-17
+        Statement:
+          - Sid: SCPDenyBillingUpdates
+            Effect: Deny
+            Action:
+              - "account:PutContactInformation"
+              - "account:PutChallengeQuestions"
+              - "account:PutAlternateContact"
+              - "account:DeleteAlternateContact"
+              - "account:CloseAccount"
+              - "billing:UpdateBillingPreferences"
+              - "billing:PutContractInformation"
+              - "billing:UpdateIAMAccessPreference"
+              - "invoicing:PutInvoiceEmailDeliveryPreferences"
+              - "payments:DeletePaymentInstrument"
+              - "payments:UpdatePaymentPreferences"
+              - "tax:BatchPutTaxRegistration"
+              - "tax:DeleteTaxRegistration"
+              - "tax:PutTaxInheritance"
+            Resource: '*'
+            Condition:
+              ArnNotLike:
+                aws:PrincipalArn: "arn:aws:iam::${Account}:root"
+
+Outputs:
+  OrganizationId:
+    Value: !GetAtt Organization.Id
+    Export:
+      Name: OrganizationId
+  OrganizationRootId:
+    Value: !GetAtt Organization.RootId
+    Export:
+      Name: OrganizationRootId
+  OrganizationArn:
+    Value: !GetAtt Organization.Arn
+    Export:
+      Name: OrganizationArn
+  OrganizationMgmtAccount:
+    Value: !GetAtt Organization.ManagementAccountId
+    Export:
+      Name: OrganizationMgmtAccount

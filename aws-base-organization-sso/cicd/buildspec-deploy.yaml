@@ -1,0 +1,32 @@
+version: 0.2
+
+env:
+  variables:
+    BUILD_BUCKET: ""
+    CLOUDFORMATION_BUCKET: ""
+    DEPLOYMENT_ROLE: ""
+    APP_CODE: ""
+    ENVIRONMENT: ""
+    REGION: ""
+    PARAMS: ""
+  exported-variables:
+    - PARAMS 
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo Configuring AWS CLI
+      - aws --version
+        
+  build:
+    commands:
+      - echo Deploying $APP_CODE stacks to $ENVIRONMENT Account using $DEPLOYMENT_ROLE
+      - echo ./deploy.sh $REGION $ENVIRONMENT default $DEPLOYMENT_ROLE
+      - ./deploy.sh $REGION $ENVIRONMENT default $DEPLOYMENT_ROLE
+
+  post_build:
+    commands:
+      - export PARAMS=Build-1234
+      - echo Deployment completed on `date`

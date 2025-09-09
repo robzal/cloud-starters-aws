@@ -1,0 +1,777 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Creates a multiple Build and Deploy Code Pipelines, for different Git repo branches, each calling shell scripts to run build and deploy actions
+Parameters:
+  AppCode:
+      Type: String
+      Default: codepipeline-demo
+      Description: Short Name for the Application being deployed in this pipeline, to be used in resource and stack names
+
+  BuildEnvironment:
+    Type: 'String'
+    Default: 'shared'
+  DevEnvironment:
+    Type: 'String'
+    Default: 'dev'
+  TestEnvironment:
+    Type: 'String'
+    Default: 'test'
+  ProdEnvironment:
+    Type: 'String'
+    Default: 'prod'
+
+  PipelineBucket:
+    Type: String
+    Default: 238160719262-pipelines
+    Description: Name of S3 bucket for CodePipeline to use
+  PipelineBucketKMSKeyAliasARN:
+    Type: String
+    Default: arn:aws:kms:ap-southeast-2:238160719262:alias/devops-bucket-key
+    Description: ARN of KMS key alias used for codepipeline S3 bucket encryption
+  CloudformationBucket:
+    Type: String
+    Default: 238160719262-cloudformation
+    Description: Name of S3 bucket for Cloudformation Templates
+  BuildBucket:
+    Type: String
+    Default: 238160719262-builds
+    Description: Name of S3 bucket for build artefacts 
+  GithubConnectionArn:
+    Type: String
+    # Default: arn:aws:codestar-connections:ap-southeast-2:238160719262:connection/897c2d7e-8480-49fa-971d-3cc398cecbb6
+    Default: ""
+    Description: Arn of the Codestar Connection for the Pipeline source, or one will be created if not provided
+  GithubOrgRepoName:
+    Type: String
+    Default: robzal/pipeline-test
+    Description: Name of the Github Repo used in pipeline
+  GithubRepoBranchListDev:
+    Type: CommaDelimitedList
+    Default: develop
+    Description: Name(s) Of Git Repo Branch(es) used to start pipeline (csv list allowed)
+  GithubRepoBranchListProd:
+    Type: CommaDelimitedList
+    Default: develop
+    Description: Name(s) Of Git Repo Branch(es) used to start pipeline (csv list allowed)
+  PipelineRoleSuffix:
+    Type: String
+    Default: CodePipeline-Role
+    Description: Suffix for IAM Pipeline role being used
+  BuildRoleSuffix:
+    Type: String
+    Default: Build-Role
+    Description: Suffix for IAM Build role being created
+  DeploymentRoleSuffix:
+    Type: String
+    Default: Deployment-Role
+    Description: Suffix for IAM Deployment role being created
+  DeploymentRoleARNDev:
+    Type: String
+    Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+    Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+  DeploymentRoleARNTest:
+    Type: String
+    Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+    Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+  DeploymentRoleARNProd:
+    Type: String
+    Default: arn:aws:iam::238160719262:role/DeploymentAdmin
+    Description: ARN of the deployment role to assume in the target account when deploying cloudformation templates and CLI calls
+  CodeBuildImage:
+    Type: String
+    Default: "aws/codebuild/standard:6.0"
+    Description: Name of the image to use for the CodeBuild container
+  CodeBuildCompute:
+    Type: String
+    Default: "BUILD_GENERAL1_SMALL"
+    Description: Compute Size to use for the CodeBuild container
+  CodeBuildType:
+    Type: String
+    Default: "LINUX_CONTAINER"
+    Description: Compute Architecture to use for the CodeBuild container
+  VPCID:
+    Type: String
+    Default: ""
+    Description: The VPC for CodeBuild projects to run in
+  VPCSubnetIDs:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: The Subnets for CodeBuild projects to run in. These should be private and use NATGW egress
+  VPCSecGroupID:
+    Type: String
+    Default: ""
+    Description: The SecurityGroup for CodeBuild projects to use. It needs Egress Only
+  SuccessEmailSubscription:
+    Type: String
+    Default: ""
+    Description: email address to receive pipeline successful completion notifications
+  FailureEmailSubscription:
+    Type: String
+    Default: ""
+    Description: email address to receive pipeline or stage failure notifications
+
+Conditions:
+  UseVPC: !Not
+    - !Equals
+      - !Ref  VPCID
+      - ""
+  SuccessSubscription: !Not
+    - !Equals
+      - !Ref  SuccessEmailSubscription
+      - ""
+  FailureSubscription: !Not
+    - !Equals
+      - !Ref  FailureEmailSubscription
+      - ""
+  CreateConnection: !Equals
+      - !Ref  GithubConnectionArn
+      - ""
+
+Resources:
+    GithubConnection:
+      Condition: CreateConnection
+      Type: AWS::CodeStarConnections::Connection
+      Properties:
+        ConnectionName: !Sub ${AppCode}-github-connection
+        ProviderType: GitHub
+
+    BuildPolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties: 
+        Description: Build Role Access"
+        Path: "/"
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - '*'
+              Resource: '*'
+        ManagedPolicyName: !Sub '${AppCode}-Build-Policy'
+    BuildRole:
+      Type: 'AWS::IAM::Role'
+      DependsOn: PipelineRole
+      Properties:
+        RoleName: !Sub '${AppCode}-${BuildRoleSuffix}'
+        ManagedPolicyArns: 
+          - !Ref BuildPolicy
+        AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${PipelineRoleSuffix}
+              Action: 'sts:AssumeRole'
+
+    BuildProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-build-project'
+        RetentionInDays: 14
+    BuildProject:
+        Type: AWS::CodeBuild::Project
+        DependsOn: BuildProjectLogGroup
+        Properties:
+            Name: !Sub ${AppCode}-build-project
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: !Ref CodeBuildType
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: cicd/buildspec.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
+    DeployProjectLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/codebuild/${AppCode}-deploy-project'
+        RetentionInDays: 14
+    DeployProject:
+        Type: AWS::CodeBuild::Project
+        DependsOn: DeployProjectLogGroup
+        Properties:
+            Name: !Sub ${AppCode}-deploy-project
+            EncryptionKey: !Ref PipelineBucketKMSKeyAliasARN
+            Artifacts:
+                Type: CODEPIPELINE
+            Environment: 
+                Type: !Ref CodeBuildType
+                ComputeType: !Ref CodeBuildCompute
+                Image: !Ref CodeBuildImage
+                PrivilegedMode: true
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: !Ref BuildBucket
+                  - Name: CLOUDFORMATION_BUCKET
+                    Value: !Ref CloudformationBucket
+            ServiceRole: !GetAtt PipelineRole.Arn
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: cicd/buildspec-deploy.yaml
+            VpcConfig:
+              !If
+              - UseVPC
+              - 
+                VpcId: !Ref VPCID
+                Subnets: !Ref VPCSubnetIDs
+                SecurityGroupIds: 
+                  - !Ref VPCSecGroupID
+              - !Ref "AWS::NoValue"
+    PipelinePolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+            - Effect: Allow
+              Action: 
+                - 's3:*'
+              Resource:
+                - !Sub 'arn:aws:s3:::${PipelineBucket}/*'
+                - !Sub 'arn:aws:s3:::${PipelineBucket}'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}/*'
+                - !Sub 'arn:aws:s3:::${CloudformationBucket}'
+                - !Sub 'arn:aws:s3:::${BuildBucket}/*'
+                - !Sub 'arn:aws:s3:::${BuildBucket}'
+            - Effect: Allow
+              Action:
+                - 'iam:PassRole'
+              Resource: 
+                - '*'
+            - Effect: Allow
+              Action:
+                - 'codepipeline:PutJobSuccessResult'
+                - 'codepipeline:PutJobFailureResult'
+              Resource:
+                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-dev-pipeline
+                - !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-test-prod-pipeline
+            - Effect: Allow
+              Action:
+                - codestar-connections:UseConnection
+              Resource:
+                - !If [CreateConnection, !Ref GithubConnection, !Ref GithubConnectionArn]
+            - Effect: Allow
+              Action:
+                - 'codebuild:StartBuild'
+                - 'codebuild:BatchGetBuilds'
+              Resource: 
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-build-project'
+                - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AppCode}-deploy-project'
+            - Effect: Allow
+              Action:
+                - sts:AssumeRole
+              Resource: 
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/${AppCode}-${BuildRoleSuffix}
+                - !Ref DeploymentRoleARNDev
+                - !Ref DeploymentRoleARNTest
+                - !Ref DeploymentRoleARNProd
+            - Effect: Allow
+              Action:
+                - 'ec2:CreateNetworkInterface'
+                - 'ec2:DescribeDhcpOptions'
+                - 'ec2:DescribeNetworkInterfaces'
+                - 'ec2:DeleteNetworkInterface'
+                - 'ec2:DescribeSubnets'
+                - 'ec2:DescribeSecurityGroups'
+                - 'ec2:DescribeVpcs'
+                - 'ec2:CreateNetworkInterfacePermission'
+              Resource: 
+                - "*"
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction 
+              Resource:
+                - !GetAtt PipelineFunction.Arn
+    PipelineRole:
+      Type: AWS::IAM::Role
+      DependsOn: PipelinePolicy
+      Properties:
+          RoleName: !Sub '${AppCode}-${PipelineRoleSuffix}'
+          AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codepipeline.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - codebuild.amazonaws.com
+                - Action: 
+                  - 'sts:AssumeRole'
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                      - lambda.amazonaws.com
+          Path: /
+          ManagedPolicyArns:
+              - !Ref PipelinePolicy
+    PipelineDev:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
+                  Type: KMS
+            Name: !Sub ${AppCode}-dev-pipeline
+            RoleArn: !GetAtt PipelineRole.Arn
+            PipelineType: V2
+            ExecutionMode: QUEUED
+            Triggers:
+              - ProviderType: CodeStarSourceConnection
+                GitConfiguration:
+                  Push:
+                    - Branches:
+                        Includes: !Ref GithubRepoBranchListDev
+                  SourceActionName: Source
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: Source
+                      Namespace: Source
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeStarSourceConnection
+                        Version: 1
+                      Configuration:
+                        ConnectionArn: !If [CreateConnection, !Ref GithubConnection, !Ref GithubConnectionArn]
+                        FullRepositoryId: !Ref GithubOrgRepoName
+                        BranchName: main
+                        BranchName: develop
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: Build
+                  Actions:
+                    - Name: Build
+                      Namespace: build
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref BuildProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"BUILD_ROLE","value":"${BuildRole.Arn}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${BuildEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: DeployDev
+                  Actions:
+                    - Name: DeployDev
+                      Namespace: deploydev
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNDev}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${DevEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: PostDeployAction
+                  Actions:
+                    - Name: Lambda
+                      ActionTypeId:
+                        Category: Invoke
+                        Owner: AWS
+                        Provider: Lambda
+                        Version: '1'
+                      RunOrder: 1
+                      Configuration:
+                        FunctionName: !Sub '${AppCode}-pipeline-lambda'
+                        UserParameters: !Sub '{
+                          "PIPELINE_NAME": "${AppCode}-dev-pipeline", 
+                          "COMMIT_BRANCH": "#{Source.BranchName}",
+                          "COMMIT_ID": "#{Source.CommitId}",
+                          "EXECUTION_ID": "#{codepipeline.PipelineExecutionId}"
+                          }'                
+                      InputArtifacts:
+                        - Name: SourceZip
+    PipelineTestProd:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref PipelineBucket
+                Type: S3
+                EncryptionKey:
+                  Id: !Ref PipelineBucketKMSKeyAliasARN
+                  Type: KMS
+            Name: !Sub ${AppCode}-test-prod-pipeline
+            RoleArn: !GetAtt PipelineRole.Arn
+            PipelineType: V2
+            ExecutionMode: QUEUED
+            Triggers:
+              - ProviderType: CodeStarSourceConnection
+                GitConfiguration:
+                  Push:
+                    - Branches:
+                        Includes: !Ref GithubRepoBranchListProd
+                  SourceActionName: Source
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: Source
+                      Namespace: Source
+                      ActionTypeId:
+                        Category: Source
+                        Owner: AWS
+                        Provider: CodeStarSourceConnection
+                        Version: 1
+                      Configuration:
+                        ConnectionArn: !If [CreateConnection, !Ref GithubConnection, !Ref GithubConnectionArn]
+                        FullRepositoryId: !Ref GithubOrgRepoName
+                        BranchName: main
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: Build
+                  Actions:
+                    - Name: Build
+                      Namespace: build
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref BuildProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"BUILD_ROLE","value":"${BuildRole.Arn}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${BuildEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: TestApproval
+                  Actions:
+                    - Name: TestApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: DeployTest
+                  Actions:
+                    - Name: DeployTest
+                      Namespace: deploytest
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNTest}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${TestEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: ProdApproval
+                  Actions:
+                    - Name: ProdApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1                    
+                - Name: DeployProd
+                  Actions:
+                    - Name: DeployProd
+                      Namespace: deployprod
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref DeployProject
+                        EnvironmentVariables: !Sub '[
+                          {"name":"DEPLOYMENT_ROLE","value":"${DeploymentRoleARNProd}","type":"PLAINTEXT"},
+                          {"name":"APP_CODE","value":"${AppCode}","type":"PLAINTEXT"},
+                          {"name":"ENVIRONMENT","value":"${ProdEnvironment}","type":"PLAINTEXT"},
+                          {"name":"REGION","value":"${AWS::Region}","type":"PLAINTEXT"},
+                          {"name":"COMMIT_ID","value":"#{Source.CommitId}","type":"PLAINTEXT"}
+                          ]'
+                      InputArtifacts:
+                        - Name: BuildZip
+                      RunOrder: 1
+                - Name: PostDeployAction
+                  Actions:
+                    - Name: Lambda
+                      ActionTypeId:
+                        Category: Invoke
+                        Owner: AWS
+                        Provider: Lambda
+                        Version: '1'
+                      RunOrder: 1
+                      Configuration:
+                        FunctionName: !Sub '${AppCode}-pipeline-lambda'
+                        UserParameters: !Sub '{
+                          "PIPELINE_NAME": "${AppCode}-test-prod-pipeline", 
+                          "COMMIT_BRANCH": "#{Source.BranchName}",
+                          "COMMIT_ID": "#{Source.CommitId}",
+                          "EXECUTION_ID": "#{codepipeline.PipelineExecutionId}"
+                          }'                
+                      InputArtifacts:
+                        - Name: SourceZip
+
+    PipelineFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        RoleName: !Sub "${AppCode}-pipeline-lambda-Role"
+        ManagedPolicyArns:
+          - !Sub "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        Path: /
+        Policies:
+          - PolicyName: CodePipelineAccess
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - codepipeline:PutJobSuccessResult
+                    - codepipeline:PutJobFailureResult
+                  Resource:
+                    - '*'
+    PipelineFunctionLogGroup:
+      Type: 'AWS::Logs::LogGroup'
+      Properties:
+        LogGroupName: !Sub '/aws/lambda/${AppCode}-pipeline-lambda'
+        RetentionInDays: 14
+    PipelineFunction:
+      Type: AWS::Lambda::Function
+      DependsOn: PipelineFunctionLogGroup
+      Properties:
+        Code: 
+          ZipFile: !Sub |
+            import os
+            import boto3
+
+            def send_codepipeline_result(jobid, result):
+                
+                code_pipeline = boto3.client('codepipeline')
+                if result:
+                    print('Lambda Pipeline job succeeded' )
+                    print('jobID ' + jobid)
+                    code_pipeline.put_job_success_result(jobId=jobid)   
+                else:
+                    print('Lambda job failed')
+                    print('jobID ' + jobid)
+                    detail = {
+                        'type': 'JobFailed',
+                        'message': 'Lambda job failed'
+                    }
+                    code_pipeline.put_job_failure_result(jobId=jobid,failureDetails=detail)    
+
+            def enable_stage(pipelineName, stageName):
+                
+              code_pipeline.enable_stage_transition(
+                  pipelineName=pipelineName,
+                  stageName=stageName,
+                  transitionType='Inbound'
+              )
+
+            def handler(event, context):
+
+                print('CodePipeline Action Lambda event')
+                print(event)
+                print (event)
+                print (os.environ)
+
+                jobid = 'unknown'
+                try:
+                    print('CodePipeline Action Lambda Job ID')
+                    jobid =  event['CodePipeline.job']['id']
+                    print('jobID ' + jobid)
+
+                    # Add custom action logic here returning True or False
+
+                    send_codepipeline_result(jobid, True)
+                except Exception as error:
+                    print('CodePipeline Action Lambda')
+                    print(str(error))
+                    print('jobID ' + jobid)    
+                    send_codepipeline_result(jobid, False)
+        Role:
+          Fn::GetAtt:
+          - PipelineFunctionRole
+          - Arn
+        Handler: index.handler
+        Runtime: python3.12
+        MemorySize: 128
+        Timeout: 10
+        FunctionName: !Sub '${AppCode}-pipeline-lambda'
+        Environment:
+          Variables:
+            APP_CODE: !Ref AppCode
+
+    PipelineSuccessListenerDev: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: PipelineDev
+      Properties:
+              Name: 'Success Notification Rule for Pipeline Dev Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-dev-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-pipeline-execution-succeeded
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineSuccessSNSTopic
+    PipelineFailListenerDev: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: PipelineDev
+      Properties:
+              Name: 'Failure Notification Rule for Pipeline Dev Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-dev-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-action-execution-failed
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineFailSNSTopic
+    PipelineSuccessListenerTestProd: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: PipelineTestProd
+      Properties:
+              Name: 'Success Notification Rule for Pipeline Test Prod Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-test-prod-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-pipeline-execution-succeeded
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineSuccessSNSTopic
+    PipelineFailListenerTestProd: 
+      Type: 'AWS::CodeStarNotifications::NotificationRule'
+      DependsOn: PipelineTestProd
+      Properties:
+              Name: 'Failure Notification Rule for Pipeline Test Prod Execution'
+              DetailType: FULL
+              Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${AppCode}-test-prod-pipeline'
+              EventTypeIds: 
+                  - codepipeline-pipeline-action-execution-failed
+              Targets: 
+                  - TargetType: SNS 
+                    TargetAddress: !Ref PipelineFailSNSTopic
+    PipelineSuccessSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !Sub '${AppCode}-pipeline-success-sns-topic'
+        TopicName: !Sub '${AppCode}-pipeline-success-sns-topic'
+        Subscription:
+          !If
+          - SuccessSubscription
+          - 
+            - Protocol: email
+              Endpoint: !Ref SuccessEmailSubscription
+          - !Ref "AWS::NoValue"
+    PipelineSuccessSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        Topics:
+          - !Ref PipelineSuccessSNSTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: 'sns:Publish'
+              Resource: !Ref PipelineSuccessSNSTopic
+              Principal:
+                Service:
+                  - codestar-notifications.amazonaws.com
+    PipelineFailSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: !Sub '${AppCode}-pipeline-failure-sns-topic'
+        TopicName: !Sub '${AppCode}-pipeline-failure-sns-topic'
+        Subscription:
+          !If
+          - FailureSubscription
+          - 
+            - Protocol: email
+              Endpoint: !Ref FailureEmailSubscription
+          - !Ref "AWS::NoValue"
+    PipelineFailSNSTopicPolicy:
+      Type: 'AWS::SNS::TopicPolicy'
+      Properties:
+        Topics:
+          - !Ref PipelineFailSNSTopic
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: 'sns:Publish'
+              Resource: !Ref PipelineFailSNSTopic
+              Principal:
+                Service:
+                  - codestar-notifications.amazonaws.com

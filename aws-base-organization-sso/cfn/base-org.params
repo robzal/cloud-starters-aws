@@ -1,0 +1,5 @@
+AppCode=${APP_CODE}
+EnableSCP=${ENABLE_SCP}
+LambdaBucket=${DEPLOYMENT_BUCKET}
+SCPEnableFunctionBucketKey=${SCP_ENABLE_LAMBDA_CODEFILE}
+PrimaryRegion=${PRIMARY_REGION}

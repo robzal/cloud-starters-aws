@@ -1,0 +1,5 @@
+AppCode=${APP_CODE}
+EnableSSO=${ENABLE_SSO}
+LambdaBucket=${DEPLOYMENT_BUCKET}
+SSOGetDetailsFunctionBucketKey=${SSO_GET_DETAIL_LAMBDA_CODEFILE}
+PrimaryRegion=${PRIMARY_REGION}

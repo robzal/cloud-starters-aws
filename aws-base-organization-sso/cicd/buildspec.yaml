@@ -1,0 +1,39 @@
+version: 0.2
+
+env:
+  variables:
+    BUILD_BUCKET: ""
+    CLOUDFORMATION_BUCKET: ""
+    BUILD_ROLE: ""
+    APP_CODE: ""
+    ENVIRONMENT: ""
+    REGION: ""
+    PARAMS: ""
+  exported-variables:
+    - PARAMS 
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo Configuring AWS CLI
+      - aws --version
+        
+  build:
+    commands:
+      - echo Running Build tasks for $APP_CODE 
+      - chmod 777 *.sh
+      - chmod 777 scripts/*.sh
+      - chmod 777 config/.*.*
+      - echo ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
+      - ./build.sh $REGION $ENVIRONMENT default $BUILD_ROLE
+
+  post_build:
+    commands:
+      - export PARAMS=Build-1234
+      - echo Build completed on `date`
+
+artifacts:
+  files:
+    - '**/*'

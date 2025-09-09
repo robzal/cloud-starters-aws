@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Creates basic AWS Single Signon structure
+Parameters:
+  AppCode:
+      Type: String
+      Default: base
+      Description: Short Name for the Application being deployed, to be used in resource and stack names
+  EnableSSO:
+    Description: Create SSO permissions and assignments
+    Type: String 
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  LambdaBucket:
+      Type: String
+      Default: 690602919686-deployments
+      Description: S3 Bucket for lambda code bundles
+  SSOGetDetailsFunctionBucketKey:
+      Type: String
+      Default: get_sso_details/get_sso_details-1.0.0.zip
+      Description: sso instance details retrieval function code bundle key.
+  PrimaryRegion:
+    Description: Primary Region ID to detect where to deploy account wide resources
+    Type: String
+    Default: "ap-southeast-2"
+
+Conditions:
+  IsPrimaryRegion: !Equals 
+    - !Ref PrimaryRegion
+    - !Ref AWS::Region
+  CreateSSO: !Equals 
+    - !Ref EnableSSO
+    - 'true'
+
+Resources:
+
+  SSOGetDetailsRole:
+    Type: AWS::IAM::Role
+    Condition: CreateSSO
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      RoleName: !Sub "${AppCode}-SSOGetDetails-Role"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSSSOMasterAccountAdministrator"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Path: /
+  SSOGetDetailsFunctionLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Condition: CreateSSO
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AppCode}-SSOGetDetails-Function'
+      RetentionInDays: 14
+  SSOGetDetailsFunction:
+    Type: AWS::Lambda::Function 
+    Condition: CreateSSO
+    DependsOn: SSOGetDetailsFunctionLogGroup
+    Properties:
+      Code:
+        S3Bucket: !Ref LambdaBucket
+        S3Key: !Ref SSOGetDetailsFunctionBucketKey
+      Role: !GetAtt SSOGetDetailsRole.Arn
+      Handler: lambda.handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      FunctionName: !Sub '${AppCode}-SSOGetDetails-Function'
+      Environment:
+        Variables:
+          APP_CODE: !Ref AppCode
+  SSOGetInstanceDetails:
+    Type: Custom::SSOGetDetailsFunction
+    Condition: CreateSSO
+    DependsOn: SSOGetDetailsFunction
+    Properties:
+      ServiceToken: !GetAtt SSOGetDetailsFunction.Arn
+
+  # Only deploying to local account for this demo,
+  # But for Org wide deployments, refactor and define multiple account assignments 
+  # for each required permissionset using the centralised group and permissionsets constructs
+  SSOAdminGroup:
+    Type: AWS::IdentityStore::Group
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      Description: Admin Group All Accounts
+      DisplayName: AdminAll
+      IdentityStoreId: !GetAtt SSOGetInstanceDetails.IdentityStoreId
+  SSOAdminPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      Name: 'AdminAllAccounts'
+      Description: 'Admin Access to all accounts.'
+      SessionDuration: 'PT8H'
+      ManagedPolicies:
+        - 'arn:aws:iam::aws:policy/AdministratorAccess'  
+  SSOAdminAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      PermissionSetArn: !GetAtt SSOAdminPermissionSet.PermissionSetArn
+      TargetId: !Sub '${AWS::AccountId}'
+      TargetType: 'AWS_ACCOUNT'
+      PrincipalType: 'GROUP'
+      PrincipalId: !GetAtt SSOAdminGroup.GroupId
+
+  SSOReadOnlyGroup:
+    Type: AWS::IdentityStore::Group
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      Description: ReadOnly Group All Accounts
+      DisplayName: ReadOnlyAll
+      IdentityStoreId: !GetAtt SSOGetInstanceDetails.IdentityStoreId
+  SSOReadOnlyPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      Name: 'ReadOnlyAllAccounts'
+      Description: 'ReadOnly Access to all accounts.'
+      SessionDuration: 'PT8H'
+      ManagedPolicies:
+        - 'arn:aws:iam::aws:policy/ReadOnlyAccess'  
+  SSOReadOnlyAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      PermissionSetArn: !GetAtt SSOReadOnlyPermissionSet.PermissionSetArn
+      TargetId: !Sub '${AWS::AccountId}'
+      TargetType: 'AWS_ACCOUNT'
+      PrincipalType: 'GROUP'
+      PrincipalId: !GetAtt SSOReadOnlyGroup.GroupId
+
+  # Custom Policies need to be pre deployed in all target accounts. They are referenced by name in the assignment
+  SSORDSConnectGroup:
+    Type: AWS::IdentityStore::Group
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      Description: RDSConnect Group All Accounts
+      DisplayName: RDSConnectAll
+      IdentityStoreId: !GetAtt SSOGetInstanceDetails.IdentityStoreId
+  SSORDSConnectPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      ManagedPolicyName: !Sub '${AppCode}-RDS-Connect-Policy'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'rds-db:connect'
+            Resource:
+              - 'arn:aws:rds-db:*:*:dbuser:*/${saml:sub}'
+  SSORDSConnectPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Condition: CreateSSO
+    DependsOn: [SSOGetInstanceDetails, SSORDSConnectPolicy]
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      Name: 'RDSConnectAllAccounts'
+      Description: 'RDSConnect Access to all accounts.'
+      SessionDuration: 'PT8H'
+      CustomerManagedPolicyReferences:
+      - Name: !Sub '${AppCode}-RDS-Connect-Policy'
+        Path: '/'
+  SSORDSConnectAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateSSO
+    DependsOn: SSOGetInstanceDetails
+    Properties:
+      InstanceArn: !GetAtt SSOGetInstanceDetails.InstanceArn
+      PermissionSetArn: !GetAtt SSORDSConnectPermissionSet.PermissionSetArn
+      TargetId: !Sub '${AWS::AccountId}'
+      TargetType: 'AWS_ACCOUNT'
+      PrincipalType: 'GROUP'
+      PrincipalId: !GetAtt SSORDSConnectGroup.GroupId
+
+Outputs:
+  IdentityStoreId:
+    Condition: CreateSSO
+    Value: !GetAtt SSOGetInstanceDetails.IdentityStoreId
+    Export:
+      Name: IdentityStoreId
+  InstanceArn:
+    Condition: CreateSSO
+    Value: !GetAtt SSOGetInstanceDetails.InstanceArn
+    Export:
+      Name: InstanceArn
